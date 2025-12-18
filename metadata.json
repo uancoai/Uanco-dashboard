@@ -1,0 +1,5 @@
+{
+  "name": "UANCO Analytics Dashboard",
+  "description": "Internal analytics dashboard for UANCO AI pre-screening, tracking clinic performance, patient suitability funnels, and system health.",
+  "requestFramePermissions": []
+}

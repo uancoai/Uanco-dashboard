@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UANCO Analytics</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600;1,700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              serif: ['Playfair Display', 'serif'],
+            },
+            colors: {
+              uanco: {
+                50: '#fafafa', // Neutral White/Lightest Gray
+                100: '#f5f5f5', // Very Light Gray (Backgrounds)
+                200: '#e5e5e5', // Light Borders
+                300: '#d4d4d4', // Darker Borders
+                400: '#a3a3a3', // Placeholder Text (Medium Gray)
+                500: '#737373', // Body Text (Dark Gray)
+                600: '#525252',
+                700: '#404040',
+                800: '#262626', // Secondary Dark
+                900: '#0f0f0f', // Primary Brand Black (Matching Buttons/Logo)
+                950: '#030712', 
+                accent: '#0ea5e9', // Clinical Blue (kept for minor highlights)
+              }
+            },
+            boxShadow: {
+              'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        background-color: #fafafa; /* uanco-50 */
+        color: #0f0f0f; /* uanco-900 */
+      }
+      /* Smooth font rendering for luxury feel */
+      * {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      /* Custom Input Styles to match screenshots */
+      input::placeholder, textarea::placeholder {
+        color: #a3a3a3 !important; /* uanco-400 */
+        opacity: 1;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.1",
+    "lucide-react": "https://esm.sh/lucide-react@^0.560.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.1/",
+    "react/": "https://esm.sh/react@^19.2.1/",
+    "recharts": "https://esm.sh/recharts@^3.5.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
