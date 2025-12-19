@@ -1,7 +1,7 @@
 import { supabase, hasValidSupabaseConfig } from './supabase';
 import { fetchDashboardData } from '../services/airtableService';
 
-const USE_MOCK = !hasValidSupabaseConfig();
+const USE_MOCK = false;
 
 async function getAuthHeader() {
   try {
