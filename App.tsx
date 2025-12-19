@@ -20,40 +20,64 @@ const App = () => {
 
   const hasConfig = hasValidSupabaseConfig();
 
+  // Fetch clinic scope + dashboard data (only after session exists)
+  const fetchProfileAndData = async () => {
+    setLoading(true);
+    try {
+      const me = await api.getMe(); // requires Netlify functions + auth header
+      setProfile(me);
+
+      const fullData = await api.getFullDashboardData(me.clinic.id);
+      setDashboardData(fullData);
+    } catch (e) {
+      // IMPORTANT:
+      // Do NOT nuke the session here.
+      // If the backend isn't ready yet, we still want to keep the user logged in,
+      // and show a "loading/error" state rather than breaking magic link login.
+      console.error('[fetchProfileAndData] failed', e);
+      setProfile(null);
+      setDashboardData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const initApp = async () => {
-      // If Supabase is not configured, do NOT fall back to demo.
-      // Just stop loading and show Auth screen.
+    const init = async () => {
+      // If config missing, stop loading and show Auth + warning
       if (!hasConfig) {
         setLoading(false);
         return;
       }
 
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        // 1) Let Supabase hydrate session from magic-link callback
+        const { data } = await supabase.auth.getSession();
+        const currentSession = data?.session ?? null;
 
+        setSession(currentSession);
+
+        // 2) If session exists, fetch data
         if (currentSession) {
-          setSession(currentSession);
-          await fetchProfile();
+          await fetchProfileAndData();
         } else {
           setLoading(false);
         }
       } catch (e) {
-        // If anything goes wrong during init, do NOT enter demo.
-        // Show Auth screen.
+        console.error('[init] getSession failed', e);
         setLoading(false);
       }
     };
 
-    initApp();
+    init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, newSession: any) => {
+    // Keep session in sync (important for magic links + refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, newSession: any) => {
+      setSession(newSession);
+
       if (newSession) {
-        setSession(newSession);
-        fetchProfile();
+        await fetchProfileAndData();
       } else {
-        // Signed out
-        setSession(null);
         setProfile(null);
         setDashboardData(null);
         setLoading(false);
@@ -64,26 +88,8 @@ const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchProfile = async () => {
-    setLoading(true);
-    try {
-      const data = await api.getMe();
-      setProfile(data);
-
-      const fullData = await api.getFullDashboardData(data.clinic.id);
-      setDashboardData(fullData);
-    } catch (e) {
-      // If profile/data fetch fails, treat as logged out (no demo fallback)
-      setSession(null);
-      setProfile(null);
-      setDashboardData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    supabase.auth.signOut();
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
 
   const handleNavigate = (view: string) => {
@@ -94,12 +100,14 @@ const App = () => {
 
   const handleUpdateRecord = (id: string, updates: any) => {
     if (!dashboardData) return;
-    const updatedPreScreens = dashboardData.preScreens.map((r: any) => r.id === id ? { ...r, ...updates } : r);
+    const updatedPreScreens = dashboardData.preScreens.map((r: any) =>
+      r.id === id ? { ...r, ...updates } : r
+    );
     setDashboardData({ ...dashboardData, preScreens: updatedPreScreens });
   };
 
-  // Loading screen logic
-  if (loading && !profile) {
+  // Loading screen (only while initial session + first data load)
+  if (loading && !profile && hasConfig) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
@@ -116,9 +124,8 @@ const App = () => {
     );
   }
 
-  // Not logged in -> show Auth screen (no demo mode)
+  // Not logged in -> show Auth screen (and config warning if missing)
   if (!session) {
-    // Optional: if supabase config is missing, show a clearer message above auth
     if (!hasConfig) {
       return (
         <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -152,10 +159,14 @@ const App = () => {
   }
 
   const renderView = () => {
+    // If user is logged in but data isn't loaded yet, show spinner
     if (!dashboardData) {
       return (
-        <div className="h-[60vh] flex items-center justify-center">
+        <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
           <Loader2 className="animate-spin text-uanco-200" size={32} />
+          <p className="text-[11px] text-uanco-400 uppercase tracking-widest font-bold">
+            Loading clinic data…
+          </p>
         </div>
       );
     }
