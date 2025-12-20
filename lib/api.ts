@@ -1,109 +1,111 @@
 import { supabase } from './supabase';
 import { fetchDashboardData } from '../services/airtableService';
 
-// Production: keep false
 const USE_MOCK = false;
 
-async function getAuthHeader(): Promise<Record<string, string>> {
+async function getAuthHeader() {
   try {
-    const { data } = await supabase.auth.getSession();
-    const session = data?.session;
-    return session?.access_token
-      ? { Authorization: `Bearer ${session.access_token}` }
-      : {};
+    // Primary: session (gives access_token)
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+
+    if (token) {
+      return { Authorization: `Bearer ${token}` };
+    }
+
+    // Fallback: if user exists but session didn't hydrate yet, still return empty safely
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData?.user) {
+      // user exists but token missing - still no header, but we won't crash
+      return {};
+    }
+
+    return {};
   } catch {
     return {};
   }
-}
-
-async function fetchJson(url: string) {
-  const headers = await getAuthHeader();
-
-  const res = await fetch(url, { headers });
-
-  // helpful error detail for debugging
-  if (!res.ok) {
-    let detail = '';
-    try {
-      detail = await res.text();
-    } catch {}
-    throw new Error(`Request failed: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
-  }
-
-  return res.json();
 }
 
 export const api = {
   async getMe() {
     if (USE_MOCK) {
       return {
-        user: { id: 'demo_user_123', email: 'demo@uanco.co.uk' },
+        user: { id: "demo_user_123", email: "demo@uanco.co.uk" },
         clinic: {
-          id: 'rec_uanco_pilot_alpha_89s7d',
-          name: 'Lerae Medical Aesthetics',
+          id: "rec_uanco_pilot_alpha_89s7d",
+          name: "Lerae Medical Aesthetics",
           active: true,
-          enabled_features: ['overview', 'prescreens', 'ai-insight', 'compliance', 'feedback'],
-        },
+          enabled_features: ["overview", "prescreens", "ai-insight", "compliance", "feedback"]
+        }
       };
     }
 
-    // ✅ MUST include Bearer token
-    return fetchJson('/.netlify/functions/me');
+    const headers = await getAuthHeader();
+    const res = await fetch('/.netlify/functions/me', { headers });
+
+    // Bubble up the real reason (helps debugging)
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Failed to fetch profile');
+    return JSON.parse(text);
   },
 
-  async getFullDashboardData(clinicId?: string) {
+  async getFullDashboardData(clinicId: string) {
     if (USE_MOCK) {
       const end = new Date();
       const start = new Date();
       start.setDate(end.getDate() - 30);
-      return fetchDashboardData({ start, end }, clinicId || 'rec_uanco_pilot_alpha_89s7d');
+      return fetchDashboardData({ start, end }, clinicId);
     }
 
-    // ✅ Do NOT accept clinicId from client
-    // Backend should derive clinic scope from the Bearer token
-    return fetchJson('/.netlify/functions/dashboard');
+    const headers = await getAuthHeader();
+    const res = await fetch(`/.netlify/functions/dashboard?clinicId=${clinicId}`, { headers });
+
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Failed to fetch data');
+    return JSON.parse(text);
   },
 
-  async getPrescreens(params: { limit?: number; since?: string } = {}) {
+  async getPrescreens(params: { clinicId?: string; limit?: number } = {}) {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData('rec_uanco_pilot_alpha_89s7d');
+      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
       let rows = data.preScreens;
       if (params.limit) rows = rows.slice(0, params.limit);
       return { rows };
     }
 
-    // ✅ Only allow non-sensitive params (limit/since), not clinicId
-    const query = new URLSearchParams();
-    if (params.limit) query.set('limit', String(params.limit));
-    if (params.since) query.set('since', params.since);
+    const headers = await getAuthHeader();
+    const query = new URLSearchParams(params as any).toString();
+    const res = await fetch(`/.netlify/functions/prescreens?${query}`, { headers });
 
-    const qs = query.toString();
-    return fetchJson(`/.netlify/functions/prescreens${qs ? `?${qs}` : ''}`);
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Failed to fetch prescreens');
+    return JSON.parse(text);
   },
 
-  async getAnalytics(params: { range?: string } = {}) {
+  async getAnalytics(params: { clinicId?: string; range?: string } = {}) {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData('rec_uanco_pilot_alpha_89s7d');
+      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
       return {
         totals: {
           total: data.metrics.totalPreScreens,
           pass: Math.round(data.metrics.totalPreScreens * (data.metrics.passRate / 100)),
           fail: data.metrics.hardFails,
           review: data.metrics.tempFails,
-          dropoffs: Math.round(data.metrics.totalPreScreens * (data.metrics.dropOffRate / 100)),
+          dropoffs: Math.round(data.metrics.totalPreScreens * (data.metrics.dropOffRate / 100))
         },
         daily: data.metrics.funnelData.map((f: any, i: number) => ({
-          date: new Date(Date.now() - i * 86400000).toISOString().split('T')[0],
-          total: f.count,
-        })),
+          date: new Date(Date.now() - (i * 86400000)).toISOString().split('T')[0],
+          total: f.count
+        }))
       };
     }
 
-    // ✅ Only allow range param (7d|30d|90d etc). No clinicId.
-    const query = new URLSearchParams();
-    if (params.range) query.set('range', params.range);
+    const headers = await getAuthHeader();
+    const query = new URLSearchParams(params as any).toString();
+    const res = await fetch(`/.netlify/functions/analytics?${query}`, { headers });
 
-    const qs = query.toString();
-    return fetchJson(`/.netlify/functions/analytics${qs ? `?${qs}` : ''}`);
-  },
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || 'Failed to fetch analytics');
+    return JSON.parse(text);
+  }
 };
