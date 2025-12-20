@@ -3,31 +3,18 @@ import { fetchDashboardData } from '../services/airtableService';
 
 const USE_MOCK = false;
 
-async function getAuthHeader() {
-  try {
-    // Primary: session (gives access_token)
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
+function authHeaders(token?: string) {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
-    if (token) {
-      return { Authorization: `Bearer ${token}` };
-    }
-
-    // Fallback: if user exists but session didn't hydrate yet, still return empty safely
-    const { data: userData } = await supabase.auth.getUser();
-    if (userData?.user) {
-      // user exists but token missing - still no header, but we won't crash
-      return {};
-    }
-
-    return {};
-  } catch {
-    return {};
-  }
+async function getTokenFallback() {
+  // fallback only (we prefer passing token from App state)
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token;
 }
 
 export const api = {
-  async getMe() {
+  async getMe(token?: string) {
     if (USE_MOCK) {
       return {
         user: { id: "demo_user_123", email: "demo@uanco.co.uk" },
@@ -40,16 +27,13 @@ export const api = {
       };
     }
 
-    const headers = await getAuthHeader();
-    const res = await fetch('/.netlify/functions/me', { headers });
-
-    // Bubble up the real reason (helps debugging)
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || 'Failed to fetch profile');
-    return JSON.parse(text);
+    const t = token || await getTokenFallback();
+    const res = await fetch('/.netlify/functions/me', { headers: authHeaders(t) });
+    if (!res.ok) throw new Error(`GET /me failed (${res.status})`);
+    return res.json();
   },
 
-  async getFullDashboardData(clinicId: string) {
+  async getFullDashboardData(clinicId: string, token?: string) {
     if (USE_MOCK) {
       const end = new Date();
       const start = new Date();
@@ -57,34 +41,30 @@ export const api = {
       return fetchDashboardData({ start, end }, clinicId);
     }
 
-    const headers = await getAuthHeader();
-    const res = await fetch(`/.netlify/functions/dashboard?clinicId=${clinicId}`, { headers });
-
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || 'Failed to fetch data');
-    return JSON.parse(text);
+    const t = token || await getTokenFallback();
+    const res = await fetch(`/.netlify/functions/dashboard?clinicId=${clinicId}`, { headers: authHeaders(t) });
+    if (!res.ok) throw new Error(`GET /dashboard failed (${res.status})`);
+    return res.json();
   },
 
-  async getPrescreens(params: { clinicId?: string; limit?: number } = {}) {
+  async getPrescreens(params: { clinicId?: string; limit?: number } = {}, token?: string) {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
+      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d", token);
       let rows = data.preScreens;
       if (params.limit) rows = rows.slice(0, params.limit);
       return { rows };
     }
 
-    const headers = await getAuthHeader();
+    const t = token || await getTokenFallback();
     const query = new URLSearchParams(params as any).toString();
-    const res = await fetch(`/.netlify/functions/prescreens?${query}`, { headers });
-
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || 'Failed to fetch prescreens');
-    return JSON.parse(text);
+    const res = await fetch(`/.netlify/functions/prescreens?${query}`, { headers: authHeaders(t) });
+    if (!res.ok) throw new Error(`GET /prescreens failed (${res.status})`);
+    return res.json();
   },
 
-  async getAnalytics(params: { clinicId?: string; range?: string } = {}) {
+  async getAnalytics(params: { clinicId?: string; range?: string } = {}, token?: string) {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
+      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d", token);
       return {
         totals: {
           total: data.metrics.totalPreScreens,
@@ -100,12 +80,10 @@ export const api = {
       };
     }
 
-    const headers = await getAuthHeader();
+    const t = token || await getTokenFallback();
     const query = new URLSearchParams(params as any).toString();
-    const res = await fetch(`/.netlify/functions/analytics?${query}`, { headers });
-
-    const text = await res.text();
-    if (!res.ok) throw new Error(text || 'Failed to fetch analytics');
-    return JSON.parse(text);
+    const res = await fetch(`/.netlify/functions/analytics?${query}`, { headers: authHeaders(t) });
+    if (!res.ok) throw new Error(`GET /analytics failed (${res.status})`);
+    return res.json();
   }
 };
