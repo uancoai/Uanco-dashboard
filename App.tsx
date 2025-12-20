@@ -30,7 +30,7 @@ const App = () => {
   // Prevent overlapping fetches
   const fetchingRef = useRef(false);
 
-  // Prevent double-processing code exchange + auth listeners racing
+  // Ensure bootstrap runs once (React strict mode + rerenders can double-run effects in dev)
   const bootstrappedRef = useRef(false);
 
   const fetchProfileAndData = async () => {
@@ -41,16 +41,13 @@ const App = () => {
     setDataError(null);
 
     try {
-      const me = await api.getMe(); // Netlify function expects Bearer token
+      const me = await api.getMe(); // requires Bearer token
       setProfile(me);
 
-      // IMPORTANT: no clinicId from client params long-term,
-      // but for now your dashboard function may still accept it.
       const full = await api.getFullDashboardData(me.clinic.id);
       setDashboardData(full);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
-
       setProfile(null);
       setDashboardData(null);
 
@@ -65,10 +62,12 @@ const App = () => {
   };
 
   useEffect(() => {
+    // Don’t bounce between states while booting
     if (!hasConfig) {
       setSession(null);
       return;
     }
+
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
 
@@ -76,18 +75,15 @@ const App = () => {
 
     const bootstrap = async () => {
       try {
-        // 1) If we arrived with ?code=... (PKCE), force Supabase to exchange it now.
-        // This is the key fix for "works once, refresh breaks".
+        // 1) If we arrived via magic link with ?code=..., exchange it for a session
         const url = new URL(window.location.href);
-        const hasCode = url.searchParams.has('code');
+        const code = url.searchParams.get('code');
 
-        if (hasCode) {
-          const { error } = await supabase.auth.exchangeCodeForSession(url.toString());
-          if (error) {
-            console.error('[exchangeCodeForSession] error', error);
-          }
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) console.error('[exchangeCodeForSession] error', error);
 
-          // Clean URL so refresh doesn't keep reprocessing auth callback.
+          // Remove ?code= to prevent refresh loops
           url.searchParams.delete('code');
           window.history.replaceState({}, document.title, url.toString());
         }
@@ -100,20 +96,22 @@ const App = () => {
 
         setSession(s);
 
-        // 3) If session exists, load data
+        // 3) If logged in, load data
         if (s) {
           await fetchProfileAndData();
         }
       } catch (e) {
         console.error('[bootstrap] failed', e);
-        setSession(null);
+        if (!cancelled) setSession(null);
       }
     };
 
     bootstrap();
 
-    // Keep session in sync (magic link, refresh, sign-out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    // 4) Keep session in sync
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
       setSession(newSession ?? null);
@@ -131,8 +129,9 @@ const App = () => {
       cancelled = true;
       subscription.unsubscribe();
     };
+    // IMPORTANT: run once; do not add dependencies that re-trigger bootstrap
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasConfig]);
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -152,7 +151,7 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updated });
   };
 
-  // 1) Bootstrap screen only while session is unknown
+  // BOOTSTRAP SCREEN: only while session is unknown
   if (hasConfig && session === undefined) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -170,7 +169,7 @@ const App = () => {
     );
   }
 
-  // 2) Logged out -> Auth (and config warning)
+  // LOGGED OUT -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -205,6 +204,7 @@ const App = () => {
   }
 
   const renderView = () => {
+    // Logged in but data not loaded yet
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -241,7 +241,7 @@ const App = () => {
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    Most likely: Netlify functions are returning 401/403 (Bearer token/profile mapping).
+                    If this persists: your Netlify functions are returning 401/403 or your /me response shape is missing clinic fields.
                   </p>
                 </div>
               </div>
