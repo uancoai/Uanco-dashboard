@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+iimport React, { useState, useEffect, useRef } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api } from './lib/api';
 import Sidebar from './components/Sidebar';
@@ -23,7 +23,7 @@ const App = () => {
 
   const hasConfig = hasValidSupabaseConfig();
 
-  // Prevent duplicate overlapping fetches (auth events + bootstrap can race)
+  // Prevent overlapping fetches (auth events + bootstrap can race)
   const fetchingRef = useRef(false);
 
   // Detect if we returned from a magic link / OAuth callback
@@ -42,7 +42,6 @@ const App = () => {
       const url = new URL(window.location.href);
       url.searchParams.delete('code');
 
-      // If auth params live in hash, wipe hash to avoid repeated processing
       if (url.hash.includes('access_token=') || url.hash.includes('error=')) {
         url.hash = '';
       }
@@ -54,7 +53,7 @@ const App = () => {
   };
 
   // Fetch clinic scope + dashboard data (only after session exists)
-  const fetchProfileAndData = async () => {
+  const fetchProfileAndData = async (activeSession?: any) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
@@ -62,15 +61,17 @@ const App = () => {
     setDataError(null);
 
     try {
-      const me = await api.getMe(); // requires Netlify functions + Authorization header
+      const token = activeSession?.access_token;
+
+      // IMPORTANT: pass token explicitly to avoid refresh race
+      const me = await api.getMe(token);
       setProfile(me);
 
-      const fullData = await api.getFullDashboardData(me.clinic.id);
+      const fullData = await api.getFullDashboardData(me.clinic.id, token);
       setDashboardData(fullData);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
 
-      // Keep user logged in, but show error (do NOT nuke session)
       setProfile(null);
       setDashboardData(null);
 
@@ -94,7 +95,6 @@ const App = () => {
 
     const bootstrap = async () => {
       try {
-        // Hydrate session on initial load (refresh support)
         const { data } = await supabase.auth.getSession();
         const s = data.session ?? null;
 
@@ -104,7 +104,7 @@ const App = () => {
 
         if (s) {
           if (isAuthCallbackUrl()) cleanAuthFromUrl();
-          await fetchProfileAndData();
+          await fetchProfileAndData(s);
         } else {
           setLoading(false);
         }
@@ -122,11 +122,12 @@ const App = () => {
       if (cancelled) return;
 
       console.log('[auth change]', _event);
+
       setSession(newSession);
 
       if (newSession) {
         if (isAuthCallbackUrl()) cleanAuthFromUrl();
-        await fetchProfileAndData();
+        await fetchProfileAndData(newSession);
       } else {
         setProfile(null);
         setDashboardData(null);
@@ -161,7 +162,6 @@ const App = () => {
   };
 
   // Only show the full-screen "Establishing Connection" while we DON'T yet know if a session exists.
-  // Once session exists, we show the app shell and the "Loading clinic data…" panel instead.
   if (hasConfig && loading && session === null) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -170,9 +170,7 @@ const App = () => {
           <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full"></div>
         </div>
         <div className="space-y-6">
-          <div className="h-12 w-12 mx-auto opacity-50">
-            <Loader2 className="h-12 w-12 text-uanco-900 animate-spin" />
-          </div>
+          <Loader2 className="h-12 w-12 text-uanco-900 animate-spin mx-auto opacity-50" />
           <p className="text-uanco-400 text-[10px] font-bold uppercase tracking-[0.3em] animate-pulse">
             Establishing Connection
           </p>
@@ -216,7 +214,7 @@ const App = () => {
   }
 
   const renderView = () => {
-    // If logged in but data failed to load, show an error panel instead of infinite loading.
+    // Logged in but data isn't loaded yet
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -239,7 +237,7 @@ const App = () => {
 
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={() => fetchProfileAndData()}
+                      onClick={async () => fetchProfileAndData(session)}
                       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
                     >
                       <RefreshCw size={14} /> Retry
@@ -254,7 +252,7 @@ const App = () => {
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    Check: /.netlify/functions/me and /.netlify/functions/dashboard return 200 with Bearer token.
+                    Backend must return 200 with Bearer token: /.netlify/functions/me and /.netlify/functions/dashboard
                   </p>
                 </div>
               </div>
