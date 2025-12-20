@@ -8,7 +8,7 @@ import ComplianceView from './components/ComplianceView';
 import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
-import { LogOut, Loader2, AlertCircle, Zap } from 'lucide-react';
+import { LogOut, Loader2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
 
 const App = () => {
   const [session, setSession] = useState<any>(null);
@@ -18,10 +18,37 @@ const App = () => {
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // NEW: show a clear message when data fetch fails (instead of infinite spinner)
+  // Show a clear message when data fetch fails (instead of infinite spinner)
   const [dataError, setDataError] = useState<string | null>(null);
 
   const hasConfig = hasValidSupabaseConfig();
+
+  // Detect if we returned from a magic link / OAuth callback
+  const isAuthCallbackUrl = () => {
+    const url = new URL(window.location.href);
+    const hasCode = url.searchParams.has('code'); // PKCE flow
+    const hasError = url.hash.includes('error=');
+    const hasAccessToken = url.hash.includes('access_token=');
+    const hasType = url.hash.includes('type=');
+    return hasCode || hasAccessToken || hasType || hasError;
+  };
+
+  // Clean URL after exchanging session (prevents reprocessing)
+  const cleanAuthFromUrl = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('code');
+
+      // If auth params live in hash, wipe hash to avoid repeated processing
+      if (url.hash.includes('access_token=') || url.hash.includes('error=')) {
+        url.hash = '';
+      }
+
+      window.history.replaceState({}, document.title, url.toString());
+    } catch {
+      // no-op
+    }
+  };
 
   // Fetch clinic scope + dashboard data (only after session exists)
   const fetchProfileAndData = async () => {
@@ -29,7 +56,7 @@ const App = () => {
     setDataError(null);
 
     try {
-      const me = await api.getMe(); // requires Netlify functions + auth header
+      const me = await api.getMe(); // requires Netlify functions + Authorization header
       setProfile(me);
 
       const fullData = await api.getFullDashboardData(me.clinic.id);
@@ -37,7 +64,7 @@ const App = () => {
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
 
-      // Keep the user logged in, but show error
+      // Keep user logged in, but show error (do NOT nuke session)
       setProfile(null);
       setDashboardData(null);
 
@@ -50,83 +77,37 @@ const App = () => {
     }
   };
 
-  // NEW: helper — detect if we returned from a magic link / OAuth callback
-  const isAuthCallbackUrl = () => {
-    const url = new URL(window.location.href);
-    const hasCode = url.searchParams.has('code'); // PKCE flow
-    const hasError = url.hash.includes('error=');
-    const hasAccessToken = url.hash.includes('access_token=');
-    const hasType = url.hash.includes('type=');
-    return hasCode || hasAccessToken || hasType || hasError;
-  };
-
-  // NEW: helper — clean URL after exchanging session (prevents reprocessing)
-  const cleanAuthFromUrl = () => {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('code');
-
-      // Keep hash routing if you use it (/#/something) BUT remove auth hash params
-      // If your app uses hash routing, auth params are usually also in hash.
-      // We'll simply remove the entire hash if it contains access_token/error.
-      if (url.hash.includes('access_token=') || url.hash.includes('error=')) {
-        url.hash = '';
-      }
-
-      window.history.replaceState({}, document.title, url.toString());
-    } catch {
-      // no-op
-    }
-  };
-
   useEffect(() => {
-    const init = async () => {
-      // If config missing, stop loading and show Auth + warning
-      if (!hasConfig) {
-        setLoading(false);
-        return;
-      }
+    if (!hasConfig) {
+      setLoading(false);
+      return;
+    }
 
-      try {
-        // ✅ CRITICAL: Explicitly exchange auth callback for a real persisted session
-        if (isAuthCallbackUrl()) {
-          const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-          if (error) {
-            console.error('[auth] exchangeCodeForSession error', error);
-            // don’t hard-fail; user can request a new link
-          }
-          cleanAuthFromUrl();
-        }
-
-        // Now hydrate from storage
-        const { data } = await supabase.auth.getSession();
-        const currentSession = data?.session ?? null;
-
-        setSession(currentSession);
-
-        if (currentSession) {
-          await fetchProfileAndData();
-        } else {
-          setLoading(false);
-        }
-      } catch (e) {
-        console.error('[init] failed', e);
-        setLoading(false);
-      }
-    };
-
-    init();
-
-    // Keep session in sync (important for magic links + refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, newSession: any) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      console.log('[auth change]', _event);
       setSession(newSession);
 
       if (newSession) {
+        if (isAuthCallbackUrl()) cleanAuthFromUrl();
         await fetchProfileAndData();
       } else {
         setProfile(null);
         setDashboardData(null);
         setDataError(null);
+        setLoading(false);
+      }
+    });
+
+    // Hydrate session on initial load
+    supabase.auth.getSession().then(({ data }) => {
+      const s = data.session ?? null;
+      setSession(s);
+
+      if (s) {
+        fetchProfileAndData();
+      } else {
         setLoading(false);
       }
     });
@@ -206,30 +187,46 @@ const App = () => {
   }
 
   const renderView = () => {
-    // If user is logged in but data isn't loaded yet, show spinner OR error
+    // If logged in but data failed to load, show an error panel instead of infinite loading.
     if (!dashboardData) {
       return (
-        <div className="h-[60vh] flex flex-col items-center justify-center gap-4">
+        <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
           <Loader2 className="animate-spin text-uanco-200" size={32} />
           <p className="text-[11px] text-uanco-400 uppercase tracking-widest font-bold">
             Loading clinic data…
           </p>
 
           {dataError && (
-            <div className="mt-4 max-w-xl w-full bg-white border border-rose-100 rounded-3xl p-5 shadow-soft text-left">
+            <div className="mt-6 max-w-xl w-full bg-white border border-rose-100 rounded-3xl p-6 shadow-soft text-left">
               <div className="flex items-start gap-3">
                 <div className="h-9 w-9 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
                   <AlertCircle className="text-rose-600" size={18} />
                 </div>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-uanco-900">Data load failed</p>
-                  <p className="text-[11px] text-uanco-400 mt-1">{dataError}</p>
-                  <button
-                    onClick={fetchProfileAndData}
-                    className="mt-3 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
-                  >
-                    Retry
-                  </button>
+                <div className="flex-1">
+                  <p className="text-xs font-bold uppercase tracking-widest text-uanco-900 mb-1">
+                    Clinic data load failed
+                  </p>
+                  <p className="text-[11px] text-uanco-400 break-words">{dataError}</p>
+
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => fetchProfileAndData()}
+                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
+                    >
+                      <RefreshCw size={14} /> Retry
+                    </button>
+
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50"
+                    >
+                      Hard refresh
+                    </button>
+                  </div>
+
+                  <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
+                    Check: /.netlify/functions/me and /.netlify/functions/dashboard return 200 with Bearer token.
+                  </p>
                 </div>
               </div>
             </div>
