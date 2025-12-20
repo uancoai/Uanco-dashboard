@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api } from './lib/api';
+
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import PreScreensView from './components/PreScreensView';
@@ -8,52 +9,27 @@ import ComplianceView from './components/ComplianceView';
 import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
+
 import { LogOut, Loader2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
 
+type SessionState = any | null | undefined; // undefined=booting, null=logged out, object=logged in
+
 const App = () => {
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<SessionState>(undefined);
   const [loading, setLoading] = useState(true);
+
   const [profile, setProfile] = useState<any>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
+
   const [currentView, setCurrentView] = useState('overview');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Show a clear message when data fetch fails (instead of infinite spinner)
   const [dataError, setDataError] = useState<string | null>(null);
 
   const hasConfig = hasValidSupabaseConfig();
-
-  // Prevent overlapping fetches (auth events + bootstrap can race)
   const fetchingRef = useRef(false);
 
-  // Detect if we returned from a magic link / OAuth callback
-  const isAuthCallbackUrl = () => {
-    const url = new URL(window.location.href);
-    const hasCode = url.searchParams.has('code'); // PKCE flow
-    const hasError = url.hash.includes('error=');
-    const hasAccessToken = url.hash.includes('access_token=');
-    const hasType = url.hash.includes('type=');
-    return hasCode || hasAccessToken || hasType || hasError;
-  };
-
-  // Clean URL after exchanging session (prevents reprocessing)
-  const cleanAuthFromUrl = () => {
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('code');
-
-      if (url.hash.includes('access_token=') || url.hash.includes('error=')) {
-        url.hash = '';
-      }
-
-      window.history.replaceState({}, document.title, url.toString());
-    } catch {
-      // no-op
-    }
-  };
-
-  // Fetch clinic scope + dashboard data (only after session exists)
-  const fetchProfileAndData = async (activeSession?: any) => {
+  const fetchProfileAndData = async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
@@ -61,24 +37,16 @@ const App = () => {
     setDataError(null);
 
     try {
-      const token = activeSession?.access_token;
-
-      // IMPORTANT: pass token explicitly to avoid refresh race
-      const me = await api.getMe(token);
+      const me = await api.getMe(); // requires Bearer token from session
       setProfile(me);
 
-      const fullData = await api.getFullDashboardData(me.clinic.id, token);
+      const fullData = await api.getFullDashboardData(me.clinic.id);
       setDashboardData(fullData);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
-
       setProfile(null);
       setDashboardData(null);
-
-      const msg =
-        e?.message ||
-        (typeof e === 'string' ? e : 'Failed to load clinic data. Check Netlify functions + auth token.');
-      setDataError(msg);
+      setDataError(e?.message || 'Failed to load clinic data (API / auth / functions).');
     } finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -88,6 +56,7 @@ const App = () => {
   useEffect(() => {
     if (!hasConfig) {
       setLoading(false);
+      setSession(null);
       return;
     }
 
@@ -103,31 +72,26 @@ const App = () => {
         setSession(s);
 
         if (s) {
-          if (isAuthCallbackUrl()) cleanAuthFromUrl();
-          await fetchProfileAndData(s);
+          await fetchProfileAndData();
         } else {
           setLoading(false);
         }
       } catch (e) {
         console.error('[bootstrap] getSession failed', e);
+        setSession(null);
         setLoading(false);
       }
     };
 
     bootstrap();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
-      console.log('[auth change]', _event);
-
-      setSession(newSession);
+      setSession(newSession ?? null);
 
       if (newSession) {
-        if (isAuthCallbackUrl()) cleanAuthFromUrl();
-        await fetchProfileAndData(newSession);
+        await fetchProfileAndData();
       } else {
         setProfile(null);
         setDashboardData(null);
@@ -161,8 +125,8 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updatedPreScreens });
   };
 
-  // Only show the full-screen "Establishing Connection" while we DON'T yet know if a session exists.
-  if (hasConfig && loading && session === null) {
+  // 1) BOOTSTRAP SCREEN: only while session is "unknown" (undefined)
+  if (hasConfig && session === undefined) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
@@ -179,7 +143,7 @@ const App = () => {
     );
   }
 
-  // Not logged in -> show Auth screen (and config warning if missing)
+  // 2) NOT LOGGED IN
   if (!session) {
     if (!hasConfig) {
       return (
@@ -197,7 +161,7 @@ const App = () => {
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-uanco-900">Configuration missing</p>
                 <p className="text-[11px] text-uanco-400">
-                  Supabase keys are not detected in this environment. Add Netlify env vars and redeploy.
+                  Supabase keys not detected in this environment. Add Netlify env vars and redeploy.
                 </p>
               </div>
             </div>
@@ -214,7 +178,7 @@ const App = () => {
   }
 
   const renderView = () => {
-    // Logged in but data isn't loaded yet
+    // Logged in but data not ready yet
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -237,7 +201,7 @@ const App = () => {
 
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={async () => fetchProfileAndData(session)}
+                      onClick={() => fetchProfileAndData()}
                       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
                     >
                       <RefreshCw size={14} /> Retry
@@ -252,7 +216,7 @@ const App = () => {
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    Backend must return 200 with Bearer token: /.netlify/functions/me and /.netlify/functions/dashboard
+                    If this persists, the Netlify functions are returning 401/403 (Bearer token / profile mapping).
                   </p>
                 </div>
               </div>
