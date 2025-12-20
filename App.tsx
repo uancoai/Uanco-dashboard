@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api } from './lib/api';
 import Sidebar from './components/Sidebar';
@@ -22,6 +22,9 @@ const App = () => {
   const [dataError, setDataError] = useState<string | null>(null);
 
   const hasConfig = hasValidSupabaseConfig();
+
+  // Prevent duplicate overlapping fetches (auth events + bootstrap can race)
+  const fetchingRef = useRef(false);
 
   // Detect if we returned from a magic link / OAuth callback
   const isAuthCallbackUrl = () => {
@@ -52,6 +55,9 @@ const App = () => {
 
   // Fetch clinic scope + dashboard data (only after session exists)
   const fetchProfileAndData = async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+
     setLoading(true);
     setDataError(null);
 
@@ -74,6 +80,7 @@ const App = () => {
       setDataError(msg);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
@@ -83,9 +90,38 @@ const App = () => {
       return;
     }
 
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      try {
+        // Hydrate session on initial load (refresh support)
+        const { data } = await supabase.auth.getSession();
+        const s = data.session ?? null;
+
+        if (cancelled) return;
+
+        setSession(s);
+
+        if (s) {
+          // If we just came back from magic link, clean URL (optional but recommended)
+          if (isAuthCallbackUrl()) cleanAuthFromUrl();
+          await fetchProfileAndData();
+        } else {
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error('[bootstrap] getSession failed', e);
+        setLoading(false);
+      }
+    };
+
+    bootstrap();
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (cancelled) return;
+
       console.log('[auth change]', _event);
       setSession(newSession);
 
@@ -100,19 +136,10 @@ const App = () => {
       }
     });
 
-    // Hydrate session on initial load
-    supabase.auth.getSession().then(({ data }) => {
-      const s = data.session ?? null;
-      setSession(s);
-
-      if (s) {
-        fetchProfileAndData();
-      } else {
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -135,7 +162,7 @@ const App = () => {
   };
 
   // Loading screen (only while initial session + first data load)
-  if (loading && !profile && hasConfig) {
+  if (loading && hasConfig && !dashboardData && !dataError) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
