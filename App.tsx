@@ -1,4 +1,4 @@
-iimport React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api } from './lib/api';
 import Sidebar from './components/Sidebar';
