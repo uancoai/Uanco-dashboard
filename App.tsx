@@ -103,7 +103,6 @@ const App = () => {
         setSession(s);
 
         if (s) {
-          // If we just came back from magic link, clean URL (optional but recommended)
           if (isAuthCallbackUrl()) cleanAuthFromUrl();
           await fetchProfileAndData();
         } else {
@@ -161,8 +160,9 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updatedPreScreens });
   };
 
-  // Loading screen (only while initial session + first data load)
-  if (loading && hasConfig && !dashboardData && !dataError) {
+  // Only show the full-screen "Establishing Connection" while we DON'T yet know if a session exists.
+  // Once session exists, we show the app shell and the "Loading clinic data…" panel instead.
+  if (hasConfig && loading && session === null) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
@@ -170,7 +170,9 @@ const App = () => {
           <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full"></div>
         </div>
         <div className="space-y-6">
-          <Loader2 className="h-12 w-12 text-uanco-900 animate-spin mx-auto opacity-50" />
+          <div className="h-12 w-12 mx-auto opacity-50">
+            <Loader2 className="h-12 w-12 text-uanco-900 animate-spin" />
+          </div>
           <p className="text-uanco-400 text-[10px] font-bold uppercase tracking-[0.3em] animate-pulse">
             Establishing Connection
           </p>
