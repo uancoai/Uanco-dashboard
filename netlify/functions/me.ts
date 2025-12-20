@@ -1,64 +1,105 @@
 import type { Handler } from '@netlify/functions'
 import { createClient } from '@supabase/supabase-js'
 
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL as string,
+  process.env.SUPABASE_SERVICE_ROLE_KEY as string,
+  { auth: { persistSession: false } }
+)
+
+function getBearerToken(headers: Record<string, any>) {
+  const h = headers.authorization || headers.Authorization || ''
+  const m = String(h).match(/^Bearer\s+(.+)$/i)
+  return m?.[1] || null
+}
+
 export const handler: Handler = async (event) => {
   try {
-    const supabaseUrl =
-      process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || ''
-    const supabaseAnonKey =
-      process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
-
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
       return {
         statusCode: 500,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          ok: false,
-          error: 'Missing Supabase env vars in Netlify Functions runtime',
-          expected: ['SUPABASE_URL', 'SUPABASE_ANON_KEY'],
-          got: {
-            has_SUPABASE_URL: !!process.env.SUPABASE_URL,
-            has_SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
-            has_VITE_SUPABASE_URL: !!process.env.VITE_SUPABASE_URL,
-            has_VITE_SUPABASE_ANON_KEY: !!process.env.VITE_SUPABASE_ANON_KEY,
-          },
-        }),
+        body: JSON.stringify({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }),
       }
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-    const authHeader =
-      event.headers.authorization || event.headers.Authorization || ''
-    const token = authHeader.replace('Bearer ', '').trim()
-
+    const token = getBearerToken(event.headers as any)
     if (!token) {
       return {
         statusCode: 401,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ok: false, error: 'Missing Bearer token' }),
+        body: JSON.stringify({ error: 'Missing Bearer token' }),
       }
     }
 
-    const { data, error } = await supabase.auth.getUser(token)
-    if (error || !data?.user) {
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token)
+    if (userErr || !userData?.user) {
       return {
         statusCode: 401,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ok: false, error: error?.message || 'Unauthorized' }),
+        body: JSON.stringify({ error: 'Invalid session' }),
+      }
+    }
+
+    const user = userData.user
+
+    const { data: profile, error: profErr } = await supabaseAdmin
+      .from('profiles')
+      .select('clinic_id, role')
+      .eq('id', user.id)
+      .single()
+
+    if (profErr || !profile?.clinic_id) {
+      return {
+        statusCode: 403,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ error: 'No clinic linked to this user' }),
+      }
+    }
+
+    const { data: clinic, error: clinicErr } = await supabaseAdmin
+      .from('clinics')
+      .select('id, name, public_clinic_key, airtable_clinic_record_id, active')
+      .eq('id', profile.clinic_id)
+      .single()
+
+    if (clinicErr || !clinic) {
+      return {
+        statusCode: 404,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ error: 'Clinic not found' }),
+      }
+    }
+
+    if (clinic.active === false) {
+      return {
+        statusCode: 403,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ error: 'Clinic inactive' }),
       }
     }
 
     return {
       statusCode: 200,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: true, user: { id: data.user.id, email: data.user.email } }),
+      body: JSON.stringify({
+        user: { id: user.id, email: user.email },
+        clinic: {
+          id: clinic.id,
+          name: clinic.name,
+          active: clinic.active,
+          public_clinic_key: clinic.public_clinic_key,
+          airtable_clinic_record_id: clinic.airtable_clinic_record_id,
+          // you don’t have this column in Supabase yet, so hardcode for now:
+          enabled_features: ['overview', 'prescreens', 'ai-insight', 'compliance', 'feedback'],
+        },
+      }),
     }
-  } catch (err: any) {
+  } catch (e: any) {
     return {
       statusCode: 500,
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: false, error: err?.message || 'Unknown error' }),
+      body: JSON.stringify({ error: e?.message || 'Unknown error' }),
     }
   }
 }
