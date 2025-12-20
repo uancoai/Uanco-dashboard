@@ -5,14 +5,20 @@ export default function AuthCallback() {
   useEffect(() => {
     (async () => {
       try {
-        // Exchange the code in the URL for a session
-        await supabase.auth.exchangeCodeForSession(window.location.href);
+        // 1) Exchange the ?code=... for a session (PKCE)
+        const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+        if (error) throw error;
 
-        // Send user into the app (and removes the ?code= URL by switching pages)
-        window.location.replace("/app");
+        // 2) Clean the URL so refresh doesn't keep re-processing the callback
+        const url = new URL(window.location.href);
+        url.searchParams.delete("code");
+        window.history.replaceState({}, document.title, url.pathname + url.hash);
+
+        // 3) Send user to the app root (SPA-safe)
+        window.location.replace("/");
       } catch (err) {
         console.error("Auth callback failed:", err);
-        window.location.replace("/login?error=callback_failed");
+        window.location.replace("/?auth=callback_failed");
       }
     })();
   }, []);
