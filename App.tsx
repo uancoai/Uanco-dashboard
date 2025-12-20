@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api } from './lib/api';
 
@@ -16,8 +16,6 @@ type SessionState = any | null | undefined; // undefined=booting, null=logged ou
 
 const App = () => {
   const [session, setSession] = useState<SessionState>(undefined);
-  const [loading, setLoading] = useState(true);
-
   const [profile, setProfile] = useState<any>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
 
@@ -25,95 +23,98 @@ const App = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [dataError, setDataError] = useState<string | null>(null);
-
-  // ✅ NEW: prevents infinite "Establishing Connection"
-  const [bootTimedOut, setBootTimedOut] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
 
   const hasConfig = hasValidSupabaseConfig();
+
+  // Prevent overlapping fetches
   const fetchingRef = useRef(false);
+
+  // Prevent double-processing code exchange + auth listeners racing
+  const bootstrappedRef = useRef(false);
 
   const fetchProfileAndData = async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
-    setLoading(true);
+    setLoadingData(true);
     setDataError(null);
 
     try {
-      const me = await api.getMe(); // requires Bearer token from session
+      const me = await api.getMe(); // Netlify function expects Bearer token
       setProfile(me);
 
-      const fullData = await api.getFullDashboardData(me.clinic.id);
-      setDashboardData(fullData);
+      // IMPORTANT: no clinicId from client params long-term,
+      // but for now your dashboard function may still accept it.
+      const full = await api.getFullDashboardData(me.clinic.id);
+      setDashboardData(full);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
+
       setProfile(null);
       setDashboardData(null);
-      setDataError(e?.message || 'Failed to load clinic data (API / auth / functions).');
+
+      const msg =
+        e?.message ||
+        (typeof e === 'string' ? e : 'Failed to load clinic data. Check Netlify functions + auth token.');
+      setDataError(msg);
     } finally {
-      setLoading(false);
+      setLoadingData(false);
       fetchingRef.current = false;
     }
   };
 
   useEffect(() => {
-    // If config missing: stop boot, treat as logged out.
     if (!hasConfig) {
-      setBootTimedOut(true);
-      setLoading(false);
       setSession(null);
       return;
     }
+    if (bootstrappedRef.current) return;
+    bootstrappedRef.current = true;
 
     let cancelled = false;
 
-    // ✅ NEW: boot timeout escape hatch
-    const bootTimer = setTimeout(() => {
-      if (cancelled) return;
-      setBootTimedOut(true);
-      setSession((prev) => (prev === undefined ? null : prev)); // if still booting, force logged out
-      setLoading(false);
-    }, 2000);
-
     const bootstrap = async () => {
       try {
+        // 1) If we arrived with ?code=... (PKCE), force Supabase to exchange it now.
+        // This is the key fix for "works once, refresh breaks".
+        const url = new URL(window.location.href);
+        const hasCode = url.searchParams.has('code');
+
+        if (hasCode) {
+          const { error } = await supabase.auth.exchangeCodeForSession(url.toString());
+          if (error) {
+            console.error('[exchangeCodeForSession] error', error);
+          }
+
+          // Clean URL so refresh doesn't keep reprocessing auth callback.
+          url.searchParams.delete('code');
+          window.history.replaceState({}, document.title, url.toString());
+        }
+
+        // 2) Hydrate session (works after refresh)
         const { data } = await supabase.auth.getSession();
         const s = data.session ?? null;
 
         if (cancelled) return;
 
-        clearTimeout(bootTimer);
-        setBootTimedOut(true);
-
         setSession(s);
 
+        // 3) If session exists, load data
         if (s) {
           await fetchProfileAndData();
-        } else {
-          setLoading(false);
         }
       } catch (e) {
-        console.error('[bootstrap] getSession failed', e);
-
-        if (cancelled) return;
-
-        clearTimeout(bootTimer);
-        setBootTimedOut(true);
-
+        console.error('[bootstrap] failed', e);
         setSession(null);
-        setLoading(false);
       }
     };
 
     bootstrap();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    // Keep session in sync (magic link, refresh, sign-out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
-
-      clearTimeout(bootTimer);
-      setBootTimedOut(true);
 
       setSession(newSession ?? null);
 
@@ -123,17 +124,15 @@ const App = () => {
         setProfile(null);
         setDashboardData(null);
         setDataError(null);
-        setLoading(false);
       }
     });
 
     return () => {
       cancelled = true;
-      clearTimeout(bootTimer);
       subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasConfig]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -147,14 +146,14 @@ const App = () => {
 
   const handleUpdateRecord = (id: string, updates: any) => {
     if (!dashboardData) return;
-    const updatedPreScreens = dashboardData.preScreens.map((r: any) =>
+    const updated = dashboardData.preScreens.map((r: any) =>
       r.id === id ? { ...r, ...updates } : r
     );
-    setDashboardData({ ...dashboardData, preScreens: updatedPreScreens });
+    setDashboardData({ ...dashboardData, preScreens: updated });
   };
 
-  // 1) BOOTSTRAP SCREEN: show ONLY while session is unknown AND not timed out
-  if (hasConfig && session === undefined && !bootTimedOut) {
+  // 1) Bootstrap screen only while session is unknown
+  if (hasConfig && session === undefined) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
@@ -171,7 +170,7 @@ const App = () => {
     );
   }
 
-  // 2) NOT LOGGED IN
+  // 2) Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -206,7 +205,6 @@ const App = () => {
   }
 
   const renderView = () => {
-    // Logged in but data not ready yet
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -234,17 +232,16 @@ const App = () => {
                     >
                       <RefreshCw size={14} /> Retry
                     </button>
-
                     <button
                       onClick={() => window.location.reload()}
                       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50"
                     >
-                      Hard refresh
+                      Refresh
                     </button>
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    If this persists, the Netlify functions are returning 401/403 (Bearer token / profile mapping).
+                    Most likely: Netlify functions are returning 401/403 (Bearer token/profile mapping).
                   </p>
                 </div>
               </div>
