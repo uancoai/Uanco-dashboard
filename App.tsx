@@ -26,6 +26,9 @@ const App = () => {
 
   const [dataError, setDataError] = useState<string | null>(null);
 
+  // ✅ NEW: prevents infinite "Establishing Connection"
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+
   const hasConfig = hasValidSupabaseConfig();
   const fetchingRef = useRef(false);
 
@@ -54,7 +57,9 @@ const App = () => {
   };
 
   useEffect(() => {
+    // If config missing: stop boot, treat as logged out.
     if (!hasConfig) {
+      setBootTimedOut(true);
       setLoading(false);
       setSession(null);
       return;
@@ -62,12 +67,23 @@ const App = () => {
 
     let cancelled = false;
 
+    // ✅ NEW: boot timeout escape hatch
+    const bootTimer = setTimeout(() => {
+      if (cancelled) return;
+      setBootTimedOut(true);
+      setSession((prev) => (prev === undefined ? null : prev)); // if still booting, force logged out
+      setLoading(false);
+    }, 2000);
+
     const bootstrap = async () => {
       try {
         const { data } = await supabase.auth.getSession();
         const s = data.session ?? null;
 
         if (cancelled) return;
+
+        clearTimeout(bootTimer);
+        setBootTimedOut(true);
 
         setSession(s);
 
@@ -78,6 +94,12 @@ const App = () => {
         }
       } catch (e) {
         console.error('[bootstrap] getSession failed', e);
+
+        if (cancelled) return;
+
+        clearTimeout(bootTimer);
+        setBootTimedOut(true);
+
         setSession(null);
         setLoading(false);
       }
@@ -85,8 +107,13 @@ const App = () => {
 
     bootstrap();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
+
+      clearTimeout(bootTimer);
+      setBootTimedOut(true);
 
       setSession(newSession ?? null);
 
@@ -102,6 +129,7 @@ const App = () => {
 
     return () => {
       cancelled = true;
+      clearTimeout(bootTimer);
       subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,8 +153,8 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updatedPreScreens });
   };
 
-  // 1) BOOTSTRAP SCREEN: only while session is "unknown" (undefined)
-  if (hasConfig && session === undefined) {
+  // 1) BOOTSTRAP SCREEN: show ONLY while session is unknown AND not timed out
+  if (hasConfig && session === undefined && !bootTimedOut) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
