@@ -12,10 +12,12 @@ import Auth from './components/Auth';
 
 import { LogOut, Loader2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
 
-type SessionState = any | null | undefined; // undefined=booting, null=logged out, object=logged in
+type SessionState = any | null; // null=logged out, object=logged in
 
 const App = () => {
-  const [session, setSession] = useState<SessionState>(undefined);
+  const [session, setSession] = useState<SessionState>(null);
+  const [authReady, setAuthReady] = useState(false);
+
   const [profile, setProfile] = useState<any>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
 
@@ -23,21 +25,16 @@ const App = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [dataError, setDataError] = useState<string | null>(null);
-  const [loadingData, setLoadingData] = useState(false);
 
   const hasConfig = hasValidSupabaseConfig();
 
   // Prevent overlapping fetches
   const fetchingRef = useRef(false);
 
-  // Ensure bootstrap runs once (React strict mode + rerenders can double-run effects in dev)
-  const bootstrappedRef = useRef(false);
-
   const fetchProfileAndData = async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
-    setLoadingData(true);
     setDataError(null);
 
     try {
@@ -56,65 +53,68 @@ const App = () => {
         (typeof e === 'string' ? e : 'Failed to load clinic data. Check Netlify functions + auth token.');
       setDataError(msg);
     } finally {
-      setLoadingData(false);
       fetchingRef.current = false;
     }
   };
 
   useEffect(() => {
-    // Don’t bounce between states while booting
-    if (!hasConfig) {
-      setSession(null);
-      return;
-    }
-
-    if (bootstrappedRef.current) return;
-    bootstrappedRef.current = true;
-
     let cancelled = false;
 
     const bootstrap = async () => {
       try {
-        // 1) If we arrived via magic link with ?code=..., exchange it for a session
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get('code');
-
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) console.error('[exchangeCodeForSession] error', error);
-
-          // Remove ?code= to prevent refresh loops
-          url.searchParams.delete('code');
-          window.history.replaceState({}, document.title, url.toString());
+        if (!hasConfig) {
+          // Config missing = we can’t auth at all, but we are "ready" to show UI
+          if (!cancelled) {
+            setSession(null);
+            setAuthReady(true);
+          }
+          return;
         }
 
-        // 2) Hydrate session (works after refresh)
-        const { data } = await supabase.auth.getSession();
-        const s = data.session ?? null;
+        const url = new URL(window.location.href);
+        const isAuthCallback = window.location.pathname === '/auth/callback';
+        const code = url.searchParams.get('code');
 
-        if (cancelled) return;
+        // If we're on /auth/callback?code=... do the exchange, then bounce to "/"
+        if (isAuthCallback && code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) console.error('[exchangeCodeForSession]', error);
 
-        setSession(s);
+          // Important: leave callback route so refresh doesn't re-run it
+          window.location.replace('/');
+          return;
+        }
 
-        // 3) If logged in, load data
+        // Normal session hydration (refresh-safe)
+        const { data, error } = await supabase.auth.getSession();
+        if (error) console.error('[getSession]', error);
+
+        const s = data?.session ?? null;
+
+        if (!cancelled) {
+          setSession(s);
+          setAuthReady(true);
+        }
+
         if (s) {
           await fetchProfileAndData();
         }
       } catch (e) {
         console.error('[bootstrap] failed', e);
-        if (!cancelled) setSession(null);
+        if (!cancelled) {
+          setSession(null);
+          setAuthReady(true);
+        }
       }
     };
 
     bootstrap();
 
-    // 4) Keep session in sync
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
       setSession(newSession ?? null);
+      setAuthReady(true);
 
       if (newSession) {
         await fetchProfileAndData();
@@ -129,9 +129,8 @@ const App = () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-    // IMPORTANT: run once; do not add dependencies that re-trigger bootstrap
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasConfig]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -151,8 +150,8 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updated });
   };
 
-  // BOOTSTRAP SCREEN: only while session is unknown
-  if (hasConfig && session === undefined) {
+  // 1) Boot screen ONLY while auth is initializing
+  if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
@@ -169,7 +168,7 @@ const App = () => {
     );
   }
 
-  // LOGGED OUT -> Auth (and config warning)
+  // 2) Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -204,7 +203,6 @@ const App = () => {
   }
 
   const renderView = () => {
-    // Logged in but data not loaded yet
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -241,7 +239,7 @@ const App = () => {
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    If this persists: your Netlify functions are returning 401/403 or your /me response shape is missing clinic fields.
+                    If this persists: your Netlify functions are returning 401/403 OR /me isn’t returning clinic fields.
                   </p>
                 </div>
               </div>
