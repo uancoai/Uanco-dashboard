@@ -12,6 +12,13 @@ function getBearerToken(event: any) {
 
 function airtableHeaders() {
   const pat = process.env.AIRTABLE_PAT;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+
+  // ✅ Safe debug logs (never prints the token itself)
+  console.log("[env] AIRTABLE_PAT exists:", !!pat);
+  console.log("[env] AIRTABLE_PAT length:", pat ? pat.length : 0);
+  console.log("[env] AIRTABLE_BASE_ID:", baseId ? `${baseId.slice(0, 6)}...` : "MISSING");
+
   if (!pat) throw new Error("Missing AIRTABLE_PAT");
   return {
     Authorization: `Bearer ${pat}`,
