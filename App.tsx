@@ -133,7 +133,9 @@ const App = () => {
 
     bootstrap();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
       setSession(newSession ?? null);
@@ -167,19 +169,17 @@ const App = () => {
 
   const handleUpdateRecord = (id: string, updates: any) => {
     if (!dashboardData) return;
-    const updated = dashboardData.preScreens.map((r: any) =>
-      r.id === id ? { ...r, ...updates } : r
-    );
+    const updated = dashboardData.preScreens.map((r: any) => (r.id === id ? { ...r, ...updates } : r));
     setDashboardData({ ...dashboardData, preScreens: updated });
   };
 
-  // Boot screen ONLY while auth is initializing
+  // 1) Boot screen ONLY while auth is initializing
   if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
         <div className="mb-12">
           <span className="text-5xl font-serif font-bold italic text-uanco-900 block mb-2">uanco.</span>
-          <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full"></div>
+          <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full" />
         </div>
         <div className="space-y-6">
           <Loader2 className="h-12 w-12 text-uanco-900 animate-spin mx-auto opacity-50" />
@@ -191,14 +191,14 @@ const App = () => {
     );
   }
 
-  // Logged out -> Auth (and config warning)
+  // 2) Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
         <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
           <div className="mb-10">
             <span className="text-5xl font-serif font-bold italic text-uanco-900 block mb-2">uanco.</span>
-            <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full"></div>
+            <div className="h-1 w-12 bg-uanco-900 mx-auto rounded-full" />
           </div>
 
           <div className="max-w-md w-full bg-white border border-uanco-100 rounded-3xl p-6 shadow-soft text-left">
@@ -230,9 +230,7 @@ const App = () => {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
           <Loader2 className="animate-spin text-uanco-200" size={32} />
-          <p className="text-[11px] text-uanco-400 uppercase tracking-widest font-bold">
-            Loading clinic data…
-          </p>
+          <p className="text-[11px] text-uanco-400 uppercase tracking-widest font-bold">Loading clinic data…</p>
 
           {dataError && (
             <div className="mt-6 max-w-xl w-full bg-white border border-rose-100 rounded-3xl p-6 shadow-soft text-left">
@@ -272,11 +270,16 @@ const App = () => {
       );
     }
 
-    const clinicName = profile ? profile.clinic.name : 'Clinic';
-
     switch (currentView) {
       case 'overview':
-        return <Dashboard clinicId={clinicName} onNavigate={handleNavigate} />;
+        return (
+          <Dashboard
+            clinicId={profile?.clinic?.id}
+            clinicName={profile?.clinic?.name}
+            onNavigate={handleNavigate}
+          />
+        );
+
       case 'prescreens':
         return (
           <PreScreensView
@@ -285,8 +288,10 @@ const App = () => {
             onUpdateRecord={handleUpdateRecord}
           />
         );
+
       case 'ai-insight':
         return <TreatmentsView stats={dashboardData.metrics.treatmentStats} questions={dashboardData.questions} />;
+
       case 'compliance':
         return (
           <ComplianceView
@@ -295,10 +300,19 @@ const App = () => {
             onUpdateRecord={handleUpdateRecord}
           />
         );
+
       case 'feedback':
         return <FeedbackView />;
+
       default:
-        return <Dashboard clinicId={clinicName} onNavigate={handleNavigate} />;
+        // ✅ IMPORTANT: same props as overview (avoids "Missing clinicId")
+        return (
+          <Dashboard
+            clinicId={profile?.clinic?.id}
+            clinicName={profile?.clinic?.name}
+            onNavigate={handleNavigate}
+          />
+        );
     }
   };
 
@@ -322,9 +336,10 @@ const App = () => {
             >
               <Zap size={20} />
             </button>
+
             <div className="flex flex-col">
               <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Active Identity
               </p>
               <span className="text-xs font-medium text-uanco-900 lowercase">{session?.user?.email}</span>
