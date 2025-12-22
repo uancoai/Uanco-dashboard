@@ -31,17 +31,52 @@ const App = () => {
   // Prevent overlapping fetches
   const fetchingRef = useRef(false);
 
-  const fetchProfileAndData = async () => {
+  const stripCodeFromUrl = () => {
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('code')) {
+      u.searchParams.delete('code');
+      window.history.replaceState({}, document.title, u.toString());
+    }
+  };
+
+  const exchangeIfCodePresent = async () => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('code');
+    if (!code) return;
+
+    // Supabase expects "code" for PKCE exchange (NOT full URL)
+    try {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) console.error('[exchangeCodeForSession] error', error);
+    } catch (err) {
+      console.error('[exchangeCodeForSession] threw', err);
+    }
+
+    // Always remove code so refresh doesn’t keep re-processing
+    stripCodeFromUrl();
+
+    // If user landed on /auth/callback, bounce to /
+    if (window.location.pathname === '/auth/callback') {
+      window.location.replace('/');
+    }
+  };
+
+  const fetchProfileAndData = async (tokenOverride?: string) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
     setDataError(null);
 
     try {
-      const me = await api.getMe(); // requires Bearer token
+      const token = tokenOverride ?? session?.access_token;
+
+      // If token isn't ready yet, fail clearly instead of calling /me with no header
+      if (!token) throw new Error('No access token available yet.');
+
+      const me = await api.getMe(token);
       setProfile(me);
 
-      const full = await api.getFullDashboardData(me.clinic.id);
+      const full = await api.getFullDashboardData(me.clinic.id, token);
       setDashboardData(full);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
@@ -59,43 +94,6 @@ const App = () => {
 
   useEffect(() => {
     let cancelled = false;
-
-    const stripCodeFromUrl = () => {
-      const u = new URL(window.location.href);
-      if (u.searchParams.has('code')) {
-        u.searchParams.delete('code');
-        window.history.replaceState({}, document.title, u.toString());
-      }
-    };
-
-    const exchangeIfCodePresent = async () => {
-      const url = new URL(window.location.href);
-      const code = url.searchParams.get('code');
-      if (!code) return;
-
-      // ✅ Try “full URL” first (some builds expect it)
-      // ✅ If that fails, retry with “code only” (other builds expect that)
-      try {
-        const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-        if (error) throw error;
-      } catch (err1) {
-        console.warn('[exchangeCodeForSession] URL mode failed; retrying with code only', err1);
-        try {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-        } catch (err2) {
-          console.error('[exchangeCodeForSession] code-only mode failed', err2);
-        }
-      }
-
-      // Always remove code so refresh doesn’t keep re-processing
-      stripCodeFromUrl();
-
-      // If user landed on /auth/callback, bounce to /
-      if (window.location.pathname === '/auth/callback') {
-        window.location.replace('/');
-      }
-    };
 
     const bootstrap = async () => {
       try {
@@ -122,7 +120,7 @@ const App = () => {
         }
 
         if (s) {
-          await fetchProfileAndData();
+          await fetchProfileAndData(s.access_token);
         }
       } catch (e) {
         console.error('[bootstrap] failed', e);
@@ -135,16 +133,14 @@ const App = () => {
 
     bootstrap();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
       setSession(newSession ?? null);
       setAuthReady(true);
 
       if (newSession) {
-        await fetchProfileAndData();
+        await fetchProfileAndData(newSession.access_token);
       } else {
         setProfile(null);
         setDashboardData(null);
@@ -177,7 +173,7 @@ const App = () => {
     setDashboardData({ ...dashboardData, preScreens: updated });
   };
 
-  // 1) Boot screen ONLY while auth is initializing
+  // Boot screen ONLY while auth is initializing
   if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -195,7 +191,7 @@ const App = () => {
     );
   }
 
-  // 2) Logged out -> Auth (and config warning)
+  // Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -252,7 +248,7 @@ const App = () => {
 
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={() => fetchProfileAndData()}
+                      onClick={() => fetchProfileAndData(session?.access_token)}
                       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
                     >
                       <RefreshCw size={14} /> Retry
