@@ -68,6 +68,35 @@ const App = () => {
       }
     };
 
+    const exchangeIfCodePresent = async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      if (!code) return;
+
+      // ✅ Try “full URL” first (some builds expect it)
+      // ✅ If that fails, retry with “code only” (other builds expect that)
+      try {
+        const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+        if (error) throw error;
+      } catch (err1) {
+        console.warn('[exchangeCodeForSession] URL mode failed; retrying with code only', err1);
+        try {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        } catch (err2) {
+          console.error('[exchangeCodeForSession] code-only mode failed', err2);
+        }
+      }
+
+      // Always remove code so refresh doesn’t keep re-processing
+      stripCodeFromUrl();
+
+      // If user landed on /auth/callback, bounce to /
+      if (window.location.pathname === '/auth/callback') {
+        window.location.replace('/');
+      }
+    };
+
     const bootstrap = async () => {
       try {
         if (!hasConfig) {
@@ -78,25 +107,10 @@ const App = () => {
           return;
         }
 
-        // ✅ Key fix: if ?code= exists on ANY route, exchange it once.
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get('code');
+        // ✅ Critical: exchange code BEFORE getSession()
+        await exchangeIfCodePresent();
 
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-          if (error) console.error('[exchangeCodeForSession]', error);
-
-          // Remove ?code= so refresh doesn't re-trigger the exchange
-          stripCodeFromUrl();
-
-          // If user is on the callback route, bounce them to /
-          if (window.location.pathname === '/auth/callback') {
-            window.location.replace('/');
-            return; // stop bootstrap here; next load will hydrate session normally
-          }
-        }
-
-        // Normal session hydration (refresh-safe)
+        // ✅ Now hydrate session (refresh-safe)
         const { data, error } = await supabase.auth.getSession();
         if (error) console.error('[getSession]', error);
 
