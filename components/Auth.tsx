@@ -12,11 +12,11 @@ const Auth = ({ onDemoLogin }: { onDemoLogin?: () => void }) => {
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
-        },
-      });
+  email,
+  options: {
+    emailRedirectTo: `${window.location.origin}/auth/callback`,
+  },
+});
 
       if (error) {
         console.error("[signInWithOtp] error:", error);
