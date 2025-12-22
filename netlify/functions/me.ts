@@ -1,105 +1,110 @@
-import type { Handler } from '@netlify/functions'
-import { createClient } from '@supabase/supabase-js'
+import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string,
-  { auth: { persistSession: false } }
-)
+const AIRTABLE_API = "https://api.airtable.com/v0";
 
-function getBearerToken(headers: Record<string, any>) {
-  const h = headers.authorization || headers.Authorization || ''
-  const m = String(h).match(/^Bearer\s+(.+)$/i)
-  return m?.[1] || null
+function getBearerToken(event: any) {
+  const h = event.headers?.authorization || event.headers?.Authorization;
+  if (!h) return null;
+  const m = String(h).match(/^Bearer (.+)$/i);
+  return m?.[1] || null;
+}
+
+function airtableHeaders() {
+  const pat = process.env.AIRTABLE_PAT;
+  if (!pat) throw new Error("Missing AIRTABLE_PAT");
+  return {
+    Authorization: `Bearer ${pat}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function airtableGet(path: string) {
+  const res = await fetch(`${AIRTABLE_API}${path}`, { headers: airtableHeaders() });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Airtable error ${res.status}: ${text}`);
+  return JSON.parse(text);
+}
+
+function escFormulaValue(v: string) {
+  // escape single quotes for Airtable formula strings
+  return v.replace(/'/g, "\\'");
 }
 
 export const handler: Handler = async (event) => {
   try {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      return {
-        statusCode: 500,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }),
-      }
-    }
-
-    const token = getBearerToken(event.headers as any)
+    const token = getBearerToken(event);
     if (!token) {
-      return {
-        statusCode: 401,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'Missing Bearer token' }),
-      }
+      return { statusCode: 401, body: JSON.stringify({ error: "Missing Bearer token" }) };
     }
 
-    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token)
+    const supabaseUrl = process.env.SUPABASE_URL!;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    if (!supabaseUrl || !serviceKey) {
+      return { statusCode: 500, body: JSON.stringify({ error: "Missing Supabase server env vars" }) };
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
     if (userErr || !userData?.user) {
-      return {
-        statusCode: 401,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'Invalid session' }),
-      }
+      return { statusCode: 401, body: JSON.stringify({ error: "Invalid session token" }) };
     }
 
-    const user = userData.user
-
-    const { data: profile, error: profErr } = await supabaseAdmin
-      .from('profiles')
-      .select('clinic_id, role')
-      .eq('id', user.id)
-      .single()
-
-    if (profErr || !profile?.clinic_id) {
-      return {
-        statusCode: 403,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'No clinic linked to this user' }),
-      }
+    const email = userData.user.email;
+    if (!email) {
+      return { statusCode: 400, body: JSON.stringify({ error: "User email missing" }) };
     }
 
-    const { data: clinic, error: clinicErr } = await supabaseAdmin
-      .from('clinics')
-      .select('id, name, public_clinic_key, airtable_clinic_record_id, active')
-      .eq('id', profile.clinic_id)
-      .single()
-
-    if (clinicErr || !clinic) {
-      return {
-        statusCode: 404,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'Clinic not found' }),
-      }
+    const baseId = process.env.AIRTABLE_BASE_ID!;
+    const clinicsTable = process.env.AIRTABLE_TABLE_CLINICS || "Clinics";
+    if (!baseId) {
+      return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
     }
 
-    if (clinic.active === false) {
+    // Match your Clinics table field that stores dashboard login email.
+    // If your field name differs, change this string ONLY.
+    const dashboardEmailField = "Dashboard Email";
+
+    const formula = `{${dashboardEmailField}}='${escFormulaValue(email)}'`;
+    const q = new URLSearchParams({
+      filterByFormula: formula,
+      maxRecords: "1",
+    }).toString();
+
+    const clinics = await airtableGet(`/${baseId}/${encodeURIComponent(clinicsTable)}?${q}`);
+    const clinicRec = clinics?.records?.[0];
+
+    if (!clinicRec) {
       return {
         statusCode: 403,
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ error: 'Clinic inactive' }),
-      }
+        body: JSON.stringify({
+          error: "No clinic found for this dashboard email in Airtable Clinics table",
+          email,
+        }),
+      };
     }
+
+    const enabled = clinicRec.fields?.["Enabled Features"] || [];
+    const name = clinicRec.fields?.["Name"] || "Clinic";
 
     return {
       statusCode: 200,
-      headers: { 'content-type': 'application/json' },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        user: { id: user.id, email: user.email },
+        user: { id: userData.user.id, email },
         clinic: {
-          id: clinic.id,
-          name: clinic.name,
-          active: clinic.active,
-          public_clinic_key: clinic.public_clinic_key,
-          airtable_clinic_record_id: clinic.airtable_clinic_record_id,
-          // you don’t have this column in Supabase yet, so hardcode for now:
-          enabled_features: ['overview', 'prescreens', 'ai-insight', 'compliance', 'feedback'],
+          id: clinicRec.id, // IMPORTANT: we use the Airtable record id as clinic id
+          name,
+          active: !!clinicRec.fields?.["Active"],
+          enabled_features: Array.isArray(enabled) ? enabled : [],
         },
       }),
-    }
+    };
   } catch (e: any) {
+    console.error("[me] error", e);
     return {
       statusCode: 500,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ error: e?.message || 'Unknown error' }),
-    }
+      body: JSON.stringify({ error: e?.message || "Server error" }),
+    };
   }
-}
+};
