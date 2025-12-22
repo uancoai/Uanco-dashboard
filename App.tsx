@@ -60,10 +60,17 @@ const App = () => {
   useEffect(() => {
     let cancelled = false;
 
+    const stripCodeFromUrl = () => {
+      const u = new URL(window.location.href);
+      if (u.searchParams.has('code')) {
+        u.searchParams.delete('code');
+        window.history.replaceState({}, document.title, u.toString());
+      }
+    };
+
     const bootstrap = async () => {
       try {
         if (!hasConfig) {
-          // Config missing = we can’t auth at all, but we are "ready" to show UI
           if (!cancelled) {
             setSession(null);
             setAuthReady(true);
@@ -71,18 +78,22 @@ const App = () => {
           return;
         }
 
+        // ✅ Key fix: if ?code= exists on ANY route, exchange it once.
         const url = new URL(window.location.href);
-        const isAuthCallback = window.location.pathname === '/auth/callback';
         const code = url.searchParams.get('code');
 
-        // If we're on /auth/callback?code=... do the exchange, then bounce to "/"
-        if (isAuthCallback && code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
           if (error) console.error('[exchangeCodeForSession]', error);
 
-          // Important: leave callback route so refresh doesn't re-run it
-          window.location.replace('/');
-          return;
+          // Remove ?code= so refresh doesn't re-trigger the exchange
+          stripCodeFromUrl();
+
+          // If user is on the callback route, bounce them to /
+          if (window.location.pathname === '/auth/callback') {
+            window.location.replace('/');
+            return; // stop bootstrap here; next load will hydrate session normally
+          }
         }
 
         // Normal session hydration (refresh-safe)
@@ -110,7 +121,9 @@ const App = () => {
 
     bootstrap();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return;
 
       setSession(newSession ?? null);
@@ -239,7 +252,7 @@ const App = () => {
                   </div>
 
                   <p className="mt-4 text-[10px] text-uanco-300 uppercase tracking-widest">
-                    If this persists: your Netlify functions are returning 401/403 OR /me isn’t returning clinic fields.
+                    If this persists: Netlify functions are returning 401/403 OR /me isn’t returning clinic fields.
                   </p>
                 </div>
               </div>
