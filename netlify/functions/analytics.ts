@@ -51,10 +51,12 @@ export const handler: Handler = async (event) => {
     const baseId = process.env.AIRTABLE_BASE_ID!;
     const prescreensTable = process.env.AIRTABLE_TABLE_PRESCREENS || "PreScreens";
     const clinicId = event.queryStringParameters?.clinicId;
+
     if (!baseId) return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
     if (!clinicId) return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
 
-    const linkedClinicField = "Clinic Name"; // <- your linked record field name
+    // ✅ MUST be the *linked record* field (Link to another record → Clinics)
+    const linkedClinicField = "Clinic";
     const filterByFormula = formulaClinicLinkContains(clinicId, linkedClinicField);
 
     const q = new URLSearchParams({ filterByFormula, pageSize: "100" }).toString();
@@ -72,7 +74,7 @@ export const handler: Handler = async (event) => {
       pass,
       fail,
       review,
-      dropoffs: 0,
+      dropoffs: 0, // keep as-is for now
     };
 
     return {
@@ -80,7 +82,7 @@ export const handler: Handler = async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         totals,
-        daily: [], // can add later
+        daily: [],
       }),
     };
   } catch (e: any) {
