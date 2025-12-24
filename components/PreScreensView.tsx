@@ -7,70 +7,66 @@ type Props = {
   onUpdateRecord?: (id: string, updates: any) => void;
 };
 
-function normalizeEligibility(v: any) {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (s === "pass") return "Pass";
-  if (s === "fail") return "Fail";
-  if (s === "review") return "Review";
-  if (!s) return "Unknown";
-  // If Airtable returns something unexpected, still show it
+function pickFirst(obj: any, keys: string[]) {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+  }
+  return "";
+}
+
+function normaliseEligibility(v: any) {
+  const s = String(v || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "pass" || s === "safe" || s === "safe to book") return "Pass";
+  if (s === "review" || s === "manual review") return "Review";
+  if (s === "fail" || s === "unsuitable") return "Fail";
+  // if Airtable stores "Pass" already etc.
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function eligibilityBadge(elig: string) {
-  const e = elig.toLowerCase();
-
-  if (e === "pass") {
-    return {
-      icon: <CheckCircle2 size={14} />,
-      cls: "bg-emerald-50 text-emerald-700 border-emerald-100",
-    };
-  }
-
-  if (e === "review") {
-    return {
-      icon: <AlertTriangle size={14} />,
-      cls: "bg-amber-50 text-amber-700 border-amber-100",
-    };
-  }
-
-  return {
-    icon: <XCircle size={14} />,
-    cls: "bg-rose-50 text-rose-700 border-rose-100",
-  };
-}
-
-const PreScreensView: React.FC<Props> = ({ records }) => {
+export default function PreScreensView({ records = [] }: Props) {
   const rows = useMemo(() => {
-    const safe = Array.isArray(records) ? records : [];
+    return (records || []).map((r: any) => {
+      const name = pickFirst(r, ["name", "Name", "Patient", "Patient Name", "Full Name"]);
+      const email = pickFirst(r, ["email", "Email"]);
+      const treatment = pickFirst(r, [
+        "treatment_selected",
+        "treatment",
+        "Treatment",
+        "Treatment Selected",
+        "Requested Treatment",
+      ]);
 
-    return safe.map((r) => {
-      const patient =
-        r.Name ||
-        r.name ||
-        r.Patient ||
-        r.patient ||
-        r.Email ||
-        r.email ||
-        "—";
-
-      const treatment =
-        r["Treatment Selected"] ||
-        r["Treatment"] ||
-        r.treatment_selected ||
-        r.treatment ||
-        "—";
-
-      const eligibility = normalizeEligibility(r.eligibility || r.Eligibility);
+      const eligibility = normaliseEligibility(
+        pickFirst(r, ["eligibility", "Eligibility", "Status"])
+      );
 
       return {
-        id: r.id,
-        patient,
-        treatment,
-        eligibility,
+        id: r?.id,
+        raw: r,
+        name: name || email || "(no name)",
+        treatment: treatment || "-",
+        eligibility: eligibility || "-",
       };
     });
   }, [records]);
+
+  const badgeClass = (elig: string) => {
+    const e = String(elig).toLowerCase();
+    if (e === "pass") return "bg-emerald-50 text-emerald-700 border-emerald-100";
+    if (e === "review") return "bg-amber-50 text-amber-800 border-amber-100";
+    if (e === "fail") return "bg-rose-50 text-rose-700 border-rose-100";
+    return "bg-uanco-50 text-uanco-700 border-uanco-100";
+  };
+
+  const iconFor = (elig: string) => {
+    const e = String(elig).toLowerCase();
+    if (e === "pass") return <CheckCircle2 size={14} className="text-emerald-600" />;
+    if (e === "review") return <AlertTriangle size={14} className="text-amber-600" />;
+    if (e === "fail") return <XCircle size={14} className="text-rose-600" />;
+    return null;
+  };
 
   return (
     <div className="space-y-6">
@@ -94,27 +90,26 @@ const PreScreensView: React.FC<Props> = ({ records }) => {
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
-                const badge = eligibilityBadge(r.eligibility);
-                return (
-                  <tr key={r.id} className="hover:bg-uanco-50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-medium">{r.patient}</td>
-                    <td className="px-6 py-4 text-sm text-uanco-500">{r.treatment}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-2 text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badge.cls}`}>
-                        {badge.icon}
-                        {r.eligibility}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })
+              rows.map((r) => (
+                <tr key={r.id} className="hover:bg-uanco-50 transition-colors">
+                  <td className="px-6 py-4 text-sm font-medium">{r.name}</td>
+                  <td className="px-6 py-4 text-sm text-uanco-500">{r.treatment}</td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`inline-flex items-center gap-2 text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClass(
+                        r.eligibility
+                      )}`}
+                    >
+                      {iconFor(r.eligibility)}
+                      {r.eligibility}
+                    </span>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
     </div>
   );
-};
-
-export default PreScreensView;
+}
