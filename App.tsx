@@ -283,8 +283,8 @@ const App = () => {
       case 'prescreens':
         return (
           <PreScreensView
-            records={dashboardData.preScreens}
-            dropOffs={dashboardData.dropOffs}
+            records={dashboardData?.preScreens ?? []}
+            dropOffs={dashboardData?.dropOffs ?? []}
             onUpdateRecord={handleUpdateRecord}
           />
         );
