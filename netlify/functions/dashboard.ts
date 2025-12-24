@@ -28,7 +28,8 @@ async function airtableGet(path: string) {
 
 // Filter helper: LINKED RECORD field "Clinic"
 function clinicLinkFormula(clinicId: string) {
-  const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
+  // Hardcode to prevent env var drift breaking onboarding
+  const clinicLinkField = "Clinic";
   return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
 }
 
