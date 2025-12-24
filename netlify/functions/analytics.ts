@@ -19,23 +19,26 @@ function airtableHeaders() {
   };
 }
 
-async function airtableGet(path: string) {
-  const res = await fetch(`${AIRTABLE_API}${path}`, { headers: airtableHeaders() });
+async function airtableGet(url: string) {
+  const res = await fetch(url, { headers: airtableHeaders() });
   const text = await res.text();
   if (!res.ok) throw new Error(`Airtable error ${res.status}: ${text}`);
   return JSON.parse(text);
 }
 
-function formulaClinicLinkContains(clinicRecordId: string, linkedFieldName: string) {
-  // Linked record fields are arrays of record IDs
-  return `FIND('${clinicRecordId}', ARRAYJOIN({${linkedFieldName}}))`;
+function asArray(v: any): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String);
+  return [String(v)];
 }
 
 export const handler: Handler = async (event) => {
   try {
+    // 1) Require Supabase token
     const token = getBearerToken(event);
     if (!token) return { statusCode: 401, body: JSON.stringify({ error: "Missing Bearer token" }) };
 
+    // 2) Validate token server-side
     const supabaseUrl = process.env.SUPABASE_URL!;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     if (!supabaseUrl || !serviceKey) {
@@ -48,40 +51,49 @@ export const handler: Handler = async (event) => {
       return { statusCode: 401, body: JSON.stringify({ error: "Invalid session token" }) };
     }
 
-    const baseId = process.env.AIRTABLE_BASE_ID!;
-    const prescreensTable = process.env.AIRTABLE_TABLE_PRESCREENS || "PreScreens";
+    // 3) Inputs
     const clinicId = event.queryStringParameters?.clinicId;
-
-    if (!baseId) return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
     if (!clinicId) return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
 
-    // ✅ MUST be the *linked record* field (Link to another record → Clinics)
-    const linkedClinicField = "Clinic";
-    const filterByFormula = formulaClinicLinkContains(clinicId, linkedClinicField);
+    const baseId = process.env.AIRTABLE_BASE_ID!;
+    if (!baseId) return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
 
-    const q = new URLSearchParams({ filterByFormula, pageSize: "100" }).toString();
-    const pre = await airtableGet(`/${baseId}/${encodeURIComponent(prescreensTable)}?${q}`);
-    const preScreens = (pre.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    const prescreensTable = process.env.AIRTABLE_TABLE_PRESCREENS || "PreScreens";
+
+    // IMPORTANT: This MUST be the linked record field (Link to another record → Clinics)
+    const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
+
+    // Eligibility field name in Airtable (keep your current)
+    const eligibilityField = "eligibility";
+
+    // 4) Pull records WITHOUT formula, then filter in code (more reliable)
+    // (We also request only the fields we need to reduce payload)
+    const url =
+      `${AIRTABLE_API}/${baseId}/${encodeURIComponent(prescreensTable)}` +
+      `?pageSize=100&fields[]=${encodeURIComponent(clinicLinkField)}&fields[]=${encodeURIComponent(eligibilityField)}`;
+
+    const pre = await airtableGet(url);
+    const rows = (pre.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+
+    // Filter by linked clinic record id (rec...)
+    const preScreens = rows.filter((r: any) => asArray(r[clinicLinkField]).includes(clinicId));
 
     const total = preScreens.length;
-    const eligField = "eligibility";
-    const pass = preScreens.filter((r: any) => String(r[eligField] || "").toLowerCase() === "pass").length;
-    const fail = preScreens.filter((r: any) => String(r[eligField] || "").toLowerCase() === "fail").length;
-    const review = preScreens.filter((r: any) => String(r[eligField] || "").toLowerCase() === "review").length;
-
-    const totals = {
-      total,
-      pass,
-      fail,
-      review,
-      dropoffs: 0, // keep as-is for now
-    };
+    const pass = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "pass").length;
+    const fail = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "fail").length;
+    const review = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "review").length;
 
     return {
       statusCode: 200,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        totals,
+        totals: {
+          total,
+          pass,
+          fail,
+          review,
+          dropoffs: 0,
+        },
         daily: [],
       }),
     };
