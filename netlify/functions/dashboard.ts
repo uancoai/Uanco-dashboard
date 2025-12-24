@@ -19,44 +19,52 @@ function airtableHeaders() {
   };
 }
 
-async function airtableGetFullUrl(url: string) {
-  const res = await fetch(url, { headers: airtableHeaders() });
+async function airtableGet(path: string) {
+  const res = await fetch(`${AIRTABLE_API}${path}`, { headers: airtableHeaders() });
   const text = await res.text();
   if (!res.ok) throw new Error(`Airtable error ${res.status}: ${text}`);
   return JSON.parse(text);
 }
 
-// Fetch ALL records from a table (handles pagination).
-async function fetchAllFromTable(baseId: string, tableName: string, fields?: string[]) {
-  const records: any[] = [];
-  let offset: string | undefined;
-
-  while (true) {
-    const params = new URLSearchParams();
-    params.set("pageSize", "100");
-    if (offset) params.set("offset", offset);
-
-    // Optional: only request certain fields to reduce payload
-    if (fields && fields.length) {
-      for (const f of fields) params.append("fields[]", f);
-    }
-
-    const url = `${AIRTABLE_API}/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`;
-    const data = await airtableGetFullUrl(url);
-
-    const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
-    records.push(...batch);
-
-    offset = data.offset;
-    if (!offset) break;
-  }
-
-  return records;
+// Filter helper: LINKED RECORD field "Clinic"
+function clinicLinkFormula(clinicId: string) {
+  const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
+  return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
 }
 
-// Filter by linked record field (Clinic) in code.
-function filterByClinicLinkedRecord(rows: any[], clinicId: string, linkedFieldName = "Clinic") {
-  return rows.filter((r) => Array.isArray(r[linkedFieldName]) && r[linkedFieldName].includes(clinicId));
+async function safeFetchTable(baseId: string, tableName: string, formula: string) {
+  try {
+    const q = new URLSearchParams({
+      filterByFormula: formula,
+      pageSize: "100",
+    }).toString();
+
+    const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
+    return (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+  } catch (e: any) {
+    console.warn(`[dashboard] safeFetchTable failed for ${tableName}`, e?.message || e);
+    return [];
+  }
+}
+
+function normElig(v: any) {
+  const s = String(v || "").trim().toLowerCase();
+  if (s === "pass") return "pass";
+  if (s === "fail") return "fail";
+  if (s === "review") return "review";
+  return "";
+}
+
+function normStep(v: any) {
+  // used for drop-off funnel; supports common field names
+  const s = String(v || "").trim();
+  return s || "Unknown";
+}
+
+function dayKey(dateLike: any) {
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
 }
 
 export const handler: Handler = async (event) => {
@@ -97,30 +105,85 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // IMPORTANT: This must match your linked record field name in each table
-    const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
+    // 5) Fetch everything for this clinic
+    const formula = clinicLinkFormula(clinicId);
 
-    // 5) Fetch all records then filter locally (matches analytics behavior; avoids Airtable formula weirdness)
-    const allPre = await fetchAllFromTable(baseId, prescreensTable);
-    const allDrops = await fetchAllFromTable(baseId, dropoffsTable);
-    const allQs = await fetchAllFromTable(baseId, questionsTable);
-    const allTs = await fetchAllFromTable(baseId, treatmentsTable);
+    const preScreens = await safeFetchTable(baseId, prescreensTable, formula);
+    const dropOffs = await safeFetchTable(baseId, dropoffsTable, formula);
+    const questions = await safeFetchTable(baseId, questionsTable, formula);
+    const treatments = await safeFetchTable(baseId, treatmentsTable, formula);
 
-    const preScreens = filterByClinicLinkedRecord(allPre, clinicId, clinicLinkField);
-    const dropOffs = filterByClinicLinkedRecord(allDrops, clinicId, clinicLinkField);
-    const questions = filterByClinicLinkedRecord(allQs, clinicId, clinicLinkField);
-    const treatments = filterByClinicLinkedRecord(allTs, clinicId, clinicLinkField);
-
-    // 6) Metrics
+    // 6) Metrics (computed)
     const totalPreScreens = preScreens.length;
 
     const eligibilityField = "eligibility";
-    const pass = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "pass").length;
-    const fail = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "fail").length;
-    const review = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "review").length;
+    const pass = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "pass").length;
+    const fail = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "fail").length;
+    const review = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "review").length;
 
     const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
     const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
+
+    // ---- failReasons[] ----
+    // tries common fields (if none exist, will remain empty)
+    const failReasonFieldCandidates = ["fail_reason", "Fail Reason", "Reason", "reason"];
+    const failReasonCounts = new Map<string, number>();
+    for (const r of preScreens) {
+      if (normElig(r[eligibilityField]) !== "fail") continue;
+      const reason =
+        failReasonFieldCandidates.map((f) => r[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "") ??
+        "Unspecified";
+      const key = String(reason).trim();
+      failReasonCounts.set(key, (failReasonCounts.get(key) || 0) + 1);
+    }
+    const failReasons = Array.from(failReasonCounts.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // ---- funnelData[] (simple: by drop-off step) ----
+    // tries common step fields
+    const stepFieldCandidates = ["dropoff_step", "Drop-off Step", "Step", "step", "Last Step", "last_step"];
+    const stepCounts = new Map<string, number>();
+    for (const d of dropOffs) {
+      const step =
+        stepFieldCandidates.map((f) => d[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unknown";
+      const key = normStep(step);
+      stepCounts.set(key, (stepCounts.get(key) || 0) + 1);
+    }
+    const funnelData = Array.from(stepCounts.entries())
+      .map(([step, count]) => ({ step, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // ---- treatmentStats[] ----
+    // You said treatments interest is stored in PreScreens / DropOffs under "interested_treatments"
+    const treatFieldCandidates = ["interested_treatments", "Interested Treatments", "Treatment", "treatment_selected"];
+    const tCounts = new Map<string, number>();
+
+    const addTreatmentsFrom = (row: any) => {
+      const raw =
+        treatFieldCandidates.map((f) => row[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+      if (!raw) return;
+
+      // supports: multi-select array OR comma-separated string
+      const items = Array.isArray(raw)
+        ? raw
+        : String(raw)
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+      for (const item of items) {
+        const key = String(item).trim();
+        tCounts.set(key, (tCounts.get(key) || 0) + 1);
+      }
+    };
+
+    preScreens.forEach(addTreatmentsFrom);
+    dropOffs.forEach(addTreatmentsFrom);
+
+    const treatmentStats = Array.from(tCounts.entries())
+      .map(([treatment, count]) => ({ treatment, count }))
+      .sort((a, b) => b.count - a.count);
 
     return {
       statusCode: 200,
@@ -136,9 +199,9 @@ export const handler: Handler = async (event) => {
           dropOffRate,
           hardFails: fail,
           tempFails: review,
-          failReasons: [],
-          funnelData: [],
-          treatmentStats: [],
+          failReasons,
+          funnelData,
+          treatmentStats,
         },
       }),
     };
