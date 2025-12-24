@@ -28,8 +28,9 @@ async function airtableGet(path: string) {
 
 // ✅ Linked-record filter helper (Clinic Name is a linked record field)
 function clinicLinkFormula(clinicId: string) {
-  const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic Name";
-  return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
+  // Filter by the lookup field that contains the Clinics record id (rec...)
+  const clinicIdField = process.env.AIRTABLE_CLINIC_ID_FIELD || "Clinic Record ID (from Clinic)";
+  return `{${clinicIdField}}='${clinicId}'`;
 }
 
 // ✅ Safe fetch: if a table doesn’t exist or is misconfigured, return empty array instead of crashing
