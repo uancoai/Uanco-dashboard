@@ -26,30 +26,13 @@ async function airtableGet(path: string) {
   return JSON.parse(text);
 }
 
-/**
- * ✅ Clinic filter that works whether the Airtable field is:
- * - a single text value like "recXXXX"
- * - OR a lookup that behaves like an array (ARRAYJOIN handles it)
- *
- * Default field name assumes you created a LOOKUP in each table:
- * "Clinic Record ID (from Clinic)"
- *
- * You can override per-env with AIRTABLE_CLINIC_ID_FIELD
- */
+// ✅ Filter helper: use the LINKED RECORD field "Clinic"
 function clinicLinkFormula(clinicId: string) {
-  const clinicIdField =
-    process.env.AIRTABLE_CLINIC_ID_FIELD || "Clinic Record ID (from Clinic)";
-
-  // Match both:
-  // 1) exact equality (single value)
-  // 2) lookup/array form (ARRAYJOIN)
-  return `OR(
-    {${clinicIdField}}='${clinicId}',
-    FIND('${clinicId}', ARRAYJOIN({${clinicIdField}}))
-  )`;
+  const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
+  // Airtable linked record field stores an array of rec... ids, so ARRAYJOIN makes it searchable.
+  return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
 }
 
-// ✅ Safe fetch: if a table doesn’t exist or is misconfigured, return empty array instead of crashing
 async function safeFetchTable(baseId: string, tableName: string, formula: string) {
   try {
     const q = new URLSearchParams({
@@ -67,13 +50,13 @@ async function safeFetchTable(baseId: string, tableName: string, formula: string
 
 export const handler: Handler = async (event) => {
   try {
-    // 1) Require Supabase token (from browser)
+    // 1) Require Supabase token
     const token = getBearerToken(event);
     if (!token) {
       return { statusCode: 401, body: JSON.stringify({ error: "Missing Bearer token" }) };
     }
 
-    // 2) Validate token server-side using Supabase service role
+    // 2) Validate token server-side (Supabase service role)
     const supabaseUrl = process.env.SUPABASE_URL!;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     if (!supabaseUrl || !serviceKey) {
@@ -92,7 +75,7 @@ export const handler: Handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
     }
 
-    // 4) Airtable base + table names
+    // 4) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
     if (!baseId) {
       return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
@@ -103,17 +86,15 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // 5) Fetch everything for this clinic
+    // 5) Fetch everything for this clinic (using linked record field Clinic)
     const formula = clinicLinkFormula(clinicId);
 
     const preScreens = await safeFetchTable(baseId, prescreensTable, formula);
     const dropOffs = await safeFetchTable(baseId, dropoffsTable, formula);
     const questions = await safeFetchTable(baseId, questionsTable, formula);
-
-    // Treatments optional (you may keep empty)
     const treatments = await safeFetchTable(baseId, treatmentsTable, formula);
 
-    // 6) Metrics (simple version)
+    // 6) Metrics
     const totalPreScreens = preScreens.length;
 
     const eligibilityField = "eligibility";
