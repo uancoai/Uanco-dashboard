@@ -44,7 +44,6 @@ const App = () => {
     const code = url.searchParams.get('code');
     if (!code) return;
 
-    // Supabase expects "code" for PKCE exchange (NOT full URL)
     try {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) console.error('[exchangeCodeForSession] error', error);
@@ -52,10 +51,8 @@ const App = () => {
       console.error('[exchangeCodeForSession] threw', err);
     }
 
-    // Always remove code so refresh doesn’t keep re-processing
     stripCodeFromUrl();
 
-    // If user landed on /auth/callback, bounce to /
     if (window.location.pathname === '/auth/callback') {
       window.location.replace('/');
     }
@@ -69,23 +66,26 @@ const App = () => {
 
     try {
       const token = tokenOverride ?? session?.access_token;
-
-      // If token isn't ready yet, fail clearly instead of calling /me with no header
       if (!token) throw new Error('No access token available yet.');
 
       const me = await api.getMe(token);
       setProfile(me);
 
       const full = await api.getFullDashboardData(me.clinic.id, token);
-      setDashboardData(full);
+
+      // ✅ Merge safety: don't wipe existing data if "full" is nullish
+      setDashboardData((prev: any) => full ?? prev);
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
-      setProfile(null);
-      setDashboardData(null);
 
+      // ✅ CRITICAL CHANGE:
+      // Do NOT clear profile/dashboardData on transient failures.
+      // Only show error + keep last-known-good UI.
       const msg =
         e?.message ||
-        (typeof e === 'string' ? e : 'Failed to load clinic data. Check Netlify functions + auth token.');
+        (typeof e === 'string'
+          ? e
+          : 'Failed to load clinic data. Check Netlify functions + auth token.');
       setDataError(msg);
     } finally {
       fetchingRef.current = false;
@@ -105,10 +105,8 @@ const App = () => {
           return;
         }
 
-        // ✅ Critical: exchange code BEFORE getSession()
         await exchangeIfCodePresent();
 
-        // ✅ Now hydrate session (refresh-safe)
         const { data, error } = await supabase.auth.getSession();
         if (error) console.error('[getSession]', error);
 
@@ -144,6 +142,7 @@ const App = () => {
       if (newSession) {
         await fetchProfileAndData(newSession.access_token);
       } else {
+        // ✅ ONLY time we clear data: real logout
         setProfile(null);
         setDashboardData(null);
         setDataError(null);
@@ -168,12 +167,15 @@ const App = () => {
   };
 
   const handleUpdateRecord = (id: string, updates: any) => {
-    if (!dashboardData) return;
-    const updated = dashboardData.preScreens.map((r: any) => (r.id === id ? { ...r, ...updates } : r));
-    setDashboardData({ ...dashboardData, preScreens: updated });
+    // ✅ Functional update avoids stale state / accidental wipes
+    setDashboardData((prev: any) => {
+      if (!prev?.preScreens) return prev;
+      const updated = prev.preScreens.map((r: any) => (r.id === id ? { ...r, ...updates } : r));
+      return { ...prev, preScreens: updated };
+    });
   };
 
-  // 1) Boot screen ONLY while auth is initializing
+  // Boot screen ONLY while auth is initializing
   if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -191,7 +193,7 @@ const App = () => {
     );
   }
 
-  // 2) Logged out -> Auth (and config warning)
+  // Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -226,6 +228,7 @@ const App = () => {
   }
 
   const renderView = () => {
+    // ✅ If dashboardData exists but error happened, show data + error banner (not blank)
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -290,13 +293,18 @@ const App = () => {
         );
 
       case 'ai-insight':
-        return <TreatmentsView stats={dashboardData.metrics.treatmentStats} questions={dashboardData.questions} />;
+        return (
+          <TreatmentsView
+            stats={dashboardData?.metrics?.treatmentStats ?? []}
+            questions={dashboardData?.questions ?? []}
+          />
+        );
 
       case 'compliance':
         return (
           <ComplianceView
-            records={dashboardData.preScreens}
-            failReasons={dashboardData.metrics.failReasons}
+            records={dashboardData?.preScreens ?? []}
+            failReasons={dashboardData?.metrics?.failReasons ?? []}
             onUpdateRecord={handleUpdateRecord}
           />
         );
@@ -305,7 +313,6 @@ const App = () => {
         return <FeedbackView />;
 
       default:
-        // ✅ IMPORTANT: same props as overview (avoids "Missing clinicId")
         return (
           <Dashboard
             clinicId={profile?.clinic?.id}
