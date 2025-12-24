@@ -19,33 +19,44 @@ function airtableHeaders() {
   };
 }
 
-async function airtableGet(path: string) {
-  const res = await fetch(`${AIRTABLE_API}${path}`, { headers: airtableHeaders() });
+async function airtableGetFullUrl(url: string) {
+  const res = await fetch(url, { headers: airtableHeaders() });
   const text = await res.text();
   if (!res.ok) throw new Error(`Airtable error ${res.status}: ${text}`);
   return JSON.parse(text);
 }
 
-// ✅ Filter helper: use the LINKED RECORD field "Clinic"
-function clinicLinkFormula(clinicId: string) {
-  const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
-  // Airtable linked record field stores an array of rec... ids, so ARRAYJOIN makes it searchable.
-  return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
+// Fetch ALL records from a table (handles pagination).
+async function fetchAllFromTable(baseId: string, tableName: string, fields?: string[]) {
+  const records: any[] = [];
+  let offset: string | undefined;
+
+  while (true) {
+    const params = new URLSearchParams();
+    params.set("pageSize", "100");
+    if (offset) params.set("offset", offset);
+
+    // Optional: only request certain fields to reduce payload
+    if (fields && fields.length) {
+      for (const f of fields) params.append("fields[]", f);
+    }
+
+    const url = `${AIRTABLE_API}/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`;
+    const data = await airtableGetFullUrl(url);
+
+    const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    records.push(...batch);
+
+    offset = data.offset;
+    if (!offset) break;
+  }
+
+  return records;
 }
 
-async function safeFetchTable(baseId: string, tableName: string, formula: string) {
-  try {
-    const q = new URLSearchParams({
-      filterByFormula: formula,
-      pageSize: "100",
-    }).toString();
-
-    const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
-    return (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
-  } catch (e: any) {
-    console.warn(`[dashboard] safeFetchTable failed for ${tableName}`, e?.message || e);
-    return [];
-  }
+// Filter by linked record field (Clinic) in code.
+function filterByClinicLinkedRecord(rows: any[], clinicId: string, linkedFieldName = "Clinic") {
+  return rows.filter((r) => Array.isArray(r[linkedFieldName]) && r[linkedFieldName].includes(clinicId));
 }
 
 export const handler: Handler = async (event) => {
@@ -86,13 +97,19 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // 5) Fetch everything for this clinic (using linked record field Clinic)
-    const formula = clinicLinkFormula(clinicId);
+    // IMPORTANT: This must match your linked record field name in each table
+    const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
 
-    const preScreens = await safeFetchTable(baseId, prescreensTable, formula);
-    const dropOffs = await safeFetchTable(baseId, dropoffsTable, formula);
-    const questions = await safeFetchTable(baseId, questionsTable, formula);
-    const treatments = await safeFetchTable(baseId, treatmentsTable, formula);
+    // 5) Fetch all records then filter locally (matches analytics behavior; avoids Airtable formula weirdness)
+    const allPre = await fetchAllFromTable(baseId, prescreensTable);
+    const allDrops = await fetchAllFromTable(baseId, dropoffsTable);
+    const allQs = await fetchAllFromTable(baseId, questionsTable);
+    const allTs = await fetchAllFromTable(baseId, treatmentsTable);
+
+    const preScreens = filterByClinicLinkedRecord(allPre, clinicId, clinicLinkField);
+    const dropOffs = filterByClinicLinkedRecord(allDrops, clinicId, clinicLinkField);
+    const questions = filterByClinicLinkedRecord(allQs, clinicId, clinicLinkField);
+    const treatments = filterByClinicLinkedRecord(allTs, clinicId, clinicLinkField);
 
     // 6) Metrics
     const totalPreScreens = preScreens.length;
