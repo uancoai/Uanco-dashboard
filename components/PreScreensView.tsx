@@ -2,10 +2,18 @@ import React, { useMemo } from "react";
 import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 
 type Props = {
-  records: any[];
-  dropOffs?: any[];
-  onUpdateRecord?: (id: string, updates: any) => void;
+  records?: any; // can be [] or { rows: [] } depending on caller
+  dropOffs?: any;
+  onUpdateRecord?: any;
 };
+
+const BUILD_MARK = "PreScreensView v2025-12-24-0300";
+
+function asArray(input: any): any[] {
+  if (Array.isArray(input)) return input;
+  if (input && Array.isArray(input.rows)) return input.rows;
+  return [];
+}
 
 function pickFirst(obj: any, keys: string[]) {
   for (const k of keys) {
@@ -21,36 +29,36 @@ function normaliseEligibility(v: any) {
   if (s === "pass" || s === "safe" || s === "safe to book") return "Pass";
   if (s === "review" || s === "manual review") return "Review";
   if (s === "fail" || s === "unsuitable") return "Fail";
-  // if Airtable stores "Pass" already etc.
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export default function PreScreensView({ records = [] }: Props) {
+export default function PreScreensView({ records }: Props) {
+  const arr = asArray(records);
+
   const rows = useMemo(() => {
-    return (records || []).map((r: any) => {
+    return arr.map((r: any) => {
       const name = pickFirst(r, ["name", "Name", "Patient", "Patient Name", "Full Name"]);
       const email = pickFirst(r, ["email", "Email"]);
+
       const treatment = pickFirst(r, [
         "treatment_selected",
-        "treatment",
-        "Treatment",
         "Treatment Selected",
-        "Requested Treatment",
+        "Treatment",
+        "treatment",
+        "interested_treatments",
+        "Interested Treatments",
       ]);
 
-      const eligibility = normaliseEligibility(
-        pickFirst(r, ["eligibility", "Eligibility", "Status"])
-      );
+      const eligibility = normaliseEligibility(pickFirst(r, ["eligibility", "Eligibility", "Status"]));
 
       return {
         id: r?.id,
-        raw: r,
         name: name || email || "(no name)",
         treatment: treatment || "-",
         eligibility: eligibility || "-",
       };
     });
-  }, [records]);
+  }, [arr]);
 
   const badgeClass = (elig: string) => {
     const e = String(elig).toLowerCase();
@@ -70,7 +78,12 @@ export default function PreScreensView({ records = [] }: Props) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-3xl font-serif">Patient Records</h2>
+      <div className="flex items-end justify-between">
+        <h2 className="text-3xl font-serif">Patient Records</h2>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-uanco-400">
+          {BUILD_MARK} · records: {arr.length}
+        </div>
+      </div>
 
       <div className="bg-white border rounded-3xl overflow-hidden shadow-soft">
         <table className="w-full text-left">
