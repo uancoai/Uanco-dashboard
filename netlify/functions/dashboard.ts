@@ -26,11 +26,27 @@ async function airtableGet(path: string) {
   return JSON.parse(text);
 }
 
-// ✅ Linked-record filter helper (Clinic Name is a linked record field)
+/**
+ * ✅ Clinic filter that works whether the Airtable field is:
+ * - a single text value like "recXXXX"
+ * - OR a lookup that behaves like an array (ARRAYJOIN handles it)
+ *
+ * Default field name assumes you created a LOOKUP in each table:
+ * "Clinic Record ID (from Clinic)"
+ *
+ * You can override per-env with AIRTABLE_CLINIC_ID_FIELD
+ */
 function clinicLinkFormula(clinicId: string) {
-  // Filter by the lookup field that contains the Clinics record id (rec...)
-  const clinicIdField = process.env.AIRTABLE_CLINIC_ID_FIELD || "Clinic Record ID (from Clinic)";
-  return `{${clinicIdField}}='${clinicId}'`;
+  const clinicIdField =
+    process.env.AIRTABLE_CLINIC_ID_FIELD || "Clinic Record ID (from Clinic)";
+
+  // Match both:
+  // 1) exact equality (single value)
+  // 2) lookup/array form (ARRAYJOIN)
+  return `OR(
+    {${clinicIdField}}='${clinicId}',
+    FIND('${clinicId}', ARRAYJOIN({${clinicIdField}}))
+  )`;
 }
 
 // ✅ Safe fetch: if a table doesn’t exist or is misconfigured, return empty array instead of crashing
@@ -40,6 +56,7 @@ async function safeFetchTable(baseId: string, tableName: string, formula: string
       filterByFormula: formula,
       pageSize: "100",
     }).toString();
+
     const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
     return (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
   } catch (e: any) {
@@ -93,10 +110,10 @@ export const handler: Handler = async (event) => {
     const dropOffs = await safeFetchTable(baseId, dropoffsTable, formula);
     const questions = await safeFetchTable(baseId, questionsTable, formula);
 
-    // Treatments is optional in your case
+    // Treatments optional (you may keep empty)
     const treatments = await safeFetchTable(baseId, treatmentsTable, formula);
 
-    // 6) Metrics
+    // 6) Metrics (simple version)
     const totalPreScreens = preScreens.length;
 
     const eligibilityField = "eligibility";
