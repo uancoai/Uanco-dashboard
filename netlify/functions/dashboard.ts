@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const AIRTABLE_API = "https://api.airtable.com/v0";
 
+/** ---------- Auth helpers ---------- */
 function getBearerToken(event: any) {
   const h = event.headers?.authorization || event.headers?.Authorization;
   if (!h) return null;
@@ -10,6 +11,7 @@ function getBearerToken(event: any) {
   return m?.[1] || null;
 }
 
+/** ---------- Airtable helpers ---------- */
 function airtableHeaders() {
   const pat = process.env.AIRTABLE_PAT;
   if (!pat) throw new Error("Missing AIRTABLE_PAT");
@@ -26,13 +28,21 @@ async function airtableGet(path: string) {
   return JSON.parse(text);
 }
 
-// Filter helper: LINKED RECORD field "Clinic"
+/**
+ * Filter helper: LINKED RECORD field "Clinic"
+ * Hardcoded to prevent env var drift breaking onboarding.
+ */
 function clinicLinkFormula(clinicId: string) {
-  // Hardcode to prevent env var drift breaking onboarding
   const clinicLinkField = "Clinic";
   return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
 }
 
+/**
+ * Safe fetch table:
+ * - Returns records when OK
+ * - Returns error string (not thrown) when Airtable fails
+ * This prevents "silent []" without visibility.
+ */
 async function safeFetchTable(baseId: string, tableName: string, formula: string) {
   try {
     const q = new URLSearchParams({
@@ -41,13 +51,14 @@ async function safeFetchTable(baseId: string, tableName: string, formula: string
     }).toString();
 
     const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
-    return (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    const records = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    return { records, error: null as string | null };
   } catch (e: any) {
-    console.warn(`[dashboard] safeFetchTable failed for ${tableName}`, e?.message || e);
-    return [];
+    return { records: [], error: e?.message || String(e) };
   }
 }
 
+/** ---------- Normalisers ---------- */
 function normElig(v: any) {
   const s = String(v || "").trim().toLowerCase();
   if (s === "pass") return "pass";
@@ -57,19 +68,16 @@ function normElig(v: any) {
 }
 
 function normStep(v: any) {
-  // used for drop-off funnel; supports common field names
   const s = String(v || "").trim();
   return s || "Unknown";
 }
 
-function dayKey(dateLike: any) {
-  const d = new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
-}
-
+/** ---------- Handler ---------- */
 export const handler: Handler = async (event) => {
   try {
+    // Debug mode ONLY when explicitly requested: ?debug=1
+    const debug = event.queryStringParameters?.debug === "1";
+
     // 1) Require Supabase token
     const token = getBearerToken(event);
     if (!token) {
@@ -109,10 +117,15 @@ export const handler: Handler = async (event) => {
     // 5) Fetch everything for this clinic
     const formula = clinicLinkFormula(clinicId);
 
-    const preScreens = await safeFetchTable(baseId, prescreensTable, formula);
-    const dropOffs = await safeFetchTable(baseId, dropoffsTable, formula);
-    const questions = await safeFetchTable(baseId, questionsTable, formula);
-    const treatments = await safeFetchTable(baseId, treatmentsTable, formula);
+    const preRes  = await safeFetchTable(baseId, prescreensTable, formula);
+    const dropRes = await safeFetchTable(baseId, dropoffsTable, formula);
+    const qRes    = await safeFetchTable(baseId, questionsTable, formula);
+    const tRes    = await safeFetchTable(baseId, treatmentsTable, formula);
+
+    const preScreens = preRes.records;
+    const dropOffs   = dropRes.records;
+    const questions  = qRes.records;
+    const treatments = tRes.records;
 
     // 6) Metrics (computed)
     const totalPreScreens = preScreens.length;
@@ -126,14 +139,15 @@ export const handler: Handler = async (event) => {
     const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
 
     // ---- failReasons[] ----
-    // tries common fields (if none exist, will remain empty)
     const failReasonFieldCandidates = ["fail_reason", "Fail Reason", "Reason", "reason"];
     const failReasonCounts = new Map<string, number>();
     for (const r of preScreens) {
       if (normElig(r[eligibilityField]) !== "fail") continue;
       const reason =
-        failReasonFieldCandidates.map((f) => r[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "") ??
-        "Unspecified";
+        failReasonFieldCandidates
+          .map((f) => r[f])
+          .find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unspecified";
+
       const key = String(reason).trim();
       failReasonCounts.set(key, (failReasonCounts.get(key) || 0) + 1);
     }
@@ -141,13 +155,14 @@ export const handler: Handler = async (event) => {
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);
 
-    // ---- funnelData[] (simple: by drop-off step) ----
-    // tries common step fields
+    // ---- funnelData[] ----
     const stepFieldCandidates = ["dropoff_step", "Drop-off Step", "Step", "step", "Last Step", "last_step"];
     const stepCounts = new Map<string, number>();
     for (const d of dropOffs) {
       const step =
-        stepFieldCandidates.map((f) => d[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unknown";
+        stepFieldCandidates
+          .map((f) => d[f])
+          .find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unknown";
       const key = normStep(step);
       stepCounts.set(key, (stepCounts.get(key) || 0) + 1);
     }
@@ -156,16 +171,15 @@ export const handler: Handler = async (event) => {
       .sort((a, b) => b.count - a.count);
 
     // ---- treatmentStats[] ----
-    // You said treatments interest is stored in PreScreens / DropOffs under "interested_treatments"
     const treatFieldCandidates = ["interested_treatments", "Interested Treatments", "Treatment", "treatment_selected"];
     const tCounts = new Map<string, number>();
 
     const addTreatmentsFrom = (row: any) => {
-      const raw =
-        treatFieldCandidates.map((f) => row[f]).find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+      const raw = treatFieldCandidates
+        .map((f) => row[f])
+        .find((v) => v !== undefined && v !== null && String(v).trim() !== "");
       if (!raw) return;
 
-      // supports: multi-select array OR comma-separated string
       const items = Array.isArray(raw)
         ? raw
         : String(raw)
@@ -186,6 +200,28 @@ export const handler: Handler = async (event) => {
       .map(([treatment, count]) => ({ treatment, count }))
       .sort((a, b) => b.count - a.count);
 
+    // Debug info only when ?debug=1 (won't affect Make)
+    const debugInfo = debug
+      ? {
+          baseIdSuffix: String(baseId).slice(-6),
+          tables: { prescreensTable, dropoffsTable, questionsTable, treatmentsTable },
+          clinicId,
+          formula,
+          airtableErrors: {
+            PreScreens: preRes.error,
+            PreScreen_DropOffs: dropRes.error,
+            AI_Questions: qRes.error,
+            Treatments: tRes.error,
+          },
+          counts: {
+            preScreens: preScreens.length,
+            dropOffs: dropOffs.length,
+            questions: questions.length,
+            treatments: treatments.length,
+          },
+        }
+      : undefined;
+
     return {
       statusCode: 200,
       headers: { "content-type": "application/json" },
@@ -204,6 +240,7 @@ export const handler: Handler = async (event) => {
           funnelData,
           treatmentStats,
         },
+        ...(debugInfo ? { debug: debugInfo } : {}),
       }),
     };
   } catch (e: any) {
