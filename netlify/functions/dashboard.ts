@@ -29,30 +29,24 @@ async function airtableGet(path: string) {
 }
 
 /**
- * Filter helper: LINKED RECORD field "Clinic"
- * Hardcoded to prevent env var drift breaking onboarding.
- */
-function clinicLinkFormula(clinicId: string) {
-  const clinicLinkField = "Clinic";
-  return `FIND('${clinicId}', ARRAYJOIN({${clinicLinkField}}))`;
-}
-
-/**
  * Safe fetch table:
- * - Returns records when OK
+ * - Fetches WITHOUT filterByFormula (avoids Airtable silent filter failure)
+ * - Filters in code by linked record field "Clinic" containing clinicId
  * - Returns error string (not thrown) when Airtable fails
- * This prevents "silent []" without visibility.
  */
-async function safeFetchTable(baseId: string, tableName: string, formula: string) {
+async function safeFetchTable(baseId: string, tableName: string, clinicId: string) {
   try {
     const q = new URLSearchParams({
-      filterByFormula: formula,
       pageSize: "100",
     }).toString();
 
     const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
     const records = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
-    return { records, error: null as string | null };
+
+    // ✅ Filter in code (linked record field is array of rec... ids)
+    const filtered = records.filter((r: any) => Array.isArray(r.Clinic) && r.Clinic.includes(clinicId));
+
+    return { records: filtered, error: null as string | null };
   } catch (e: any) {
     return { records: [], error: e?.message || String(e) };
   }
@@ -114,17 +108,15 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // 5) Fetch everything for this clinic
-    const formula = clinicLinkFormula(clinicId);
-
-    const preRes  = await safeFetchTable(baseId, prescreensTable, formula);
-    const dropRes = await safeFetchTable(baseId, dropoffsTable, formula);
-    const qRes    = await safeFetchTable(baseId, questionsTable, formula);
-    const tRes    = await safeFetchTable(baseId, treatmentsTable, formula);
+    // 5) Fetch everything for this clinic (filter in code)
+    const preRes = await safeFetchTable(baseId, prescreensTable, clinicId);
+    const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicId);
+    const qRes = await safeFetchTable(baseId, questionsTable, clinicId);
+    const tRes = await safeFetchTable(baseId, treatmentsTable, clinicId);
 
     const preScreens = preRes.records;
-    const dropOffs   = dropRes.records;
-    const questions  = qRes.records;
+    const dropOffs = dropRes.records;
+    const questions = qRes.records;
     const treatments = tRes.records;
 
     // 6) Metrics (computed)
@@ -200,13 +192,12 @@ export const handler: Handler = async (event) => {
       .map(([treatment, count]) => ({ treatment, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Debug info only when ?debug=1 (won't affect Make)
+    // Debug info only when ?debug=1
     const debugInfo = debug
       ? {
           baseIdSuffix: String(baseId).slice(-6),
           tables: { prescreensTable, dropoffsTable, questionsTable, treatmentsTable },
           clinicId,
-          formula,
           airtableErrors: {
             PreScreens: preRes.error,
             PreScreen_DropOffs: dropRes.error,
