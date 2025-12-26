@@ -275,13 +275,17 @@ const App = () => {
 
     switch (currentView) {
       case 'overview':
-        return (
-          <Dashboard
-            clinicId={profile?.clinic?.id}
-            clinicName={profile?.clinic?.name}
-            onNavigate={handleNavigate}
-          />
-        );
+  return (
+    <Dashboard
+      clinicId={profile?.clinic?.id}
+      clinicName={profile?.clinic?.name}
+      onNavigate={handleNavigate}
+      preScreens={dashboardData?.preScreens || []}
+      metrics={dashboardData?.metrics || null}
+      questions={dashboardData?.questions || []}
+      dropOffs={dashboardData?.dropOffs || []}
+    />
+  );
 
       case 'prescreens':
         return (
@@ -313,13 +317,17 @@ const App = () => {
         return <FeedbackView />;
 
       default:
-        return (
-          <Dashboard
-            clinicId={profile?.clinic?.id}
-            clinicName={profile?.clinic?.name}
-            onNavigate={handleNavigate}
-          />
-        );
+  return (
+    <Dashboard
+      clinicId={profile?.clinic?.id}
+      clinicName={profile?.clinic?.name}
+      onNavigate={handleNavigate}
+      preScreens={dashboardData?.preScreens || []}
+      metrics={dashboardData?.metrics || null}
+      questions={dashboardData?.questions || []}
+      dropOffs={dashboardData?.dropOffs || []}
+    />
+  );
     }
   };
 
