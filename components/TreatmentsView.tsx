@@ -127,28 +127,23 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
       return {
         headline: "No clear behavioural patterns detected yet.",
         secondary: null as string | null,
-        suggestion: null as string | null,
       };
     }
 
     // Optional secondary only if it exists and has at least 2 hits as well
     const second = meaningfulThemes[1];
-    const secondary =
-      second && Number(second.count) >= 2 ? `Next most common: ${second.label}` : null;
-
-    // Keep suggestion simple and non-annoying.
-    const suggestion = `Consider adding a short FAQ or post that answers this theme clearly.`;
+    const secondary = second && Number(second.count) >= 2 ? `Next most common: ${second.label}` : null;
 
     return {
       headline: `Most common theme: ${top.label}`,
       secondary,
-      suggestion,
     };
   }, [meaningfulThemes]);
 
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-serif">AI Insight</h2>
+      {/* ✅ Rename this header if you want (recommended: Clinic Signals) */}
+      <h2 className="text-3xl font-serif">Clinic Signals</h2>
 
       {/* 3 blocks */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -189,9 +184,6 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
         {/* 2) Common questions */}
         <div className="bg-white p-6 border rounded-3xl shadow-soft">
           <h3 className="text-sm font-bold uppercase tracking-widest text-uanco-400">What clients are asking</h3>
-          <p className="text-[12px] text-uanco-500 mt-2">
-            Simple grouping of raw questions (no guessing).
-          </p>
 
           <div className="mt-6 space-y-3">
             <div className="flex justify-between text-sm">
@@ -217,14 +209,10 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
         {/* 3) Emerging patterns */}
         <div className="bg-white p-6 border rounded-3xl shadow-soft">
           <h3 className="text-sm font-bold uppercase tracking-widest text-uanco-400">Emerging pattern</h3>
-          <p className="text-[12px] text-uanco-500 mt-2">
-            A plain-English summary based on the most common question theme.
-          </p>
 
           <div className="mt-6 space-y-3">
             <p className="text-sm font-medium text-uanco-900">{emerging.headline}</p>
             {emerging.secondary && <p className="text-sm text-uanco-600">{emerging.secondary}</p>}
-            {emerging.suggestion && <p className="text-sm text-uanco-600">{emerging.suggestion}</p>}
           </div>
         </div>
       </div>
