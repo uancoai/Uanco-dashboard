@@ -308,12 +308,12 @@ const App = () => {
         );
 
       case 'ai-insight':
-        return (
-          <TreatmentsView
-            stats={dashboardData?.metrics?.treatmentStats ?? []}
-            questions={dashboardData?.questions ?? []}
-          />
-        );
+  return (
+    <TreatmentsView
+      records={dashboardData?.preScreens ?? []}
+      questions={dashboardData?.questions ?? []}
+    />
+  );
 
       case 'compliance':
         return (
