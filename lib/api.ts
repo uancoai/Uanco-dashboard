@@ -7,19 +7,24 @@ import { fetchDashboardData } from '../services/airtableService';
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
 function authHeaders(token?: string) {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      }
+    : { Accept: 'application/json' };
 }
 
 async function getTokenFallback() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   return session?.access_token;
 }
 
 async function requireToken(explicitToken?: string) {
   const token = explicitToken ?? (await getTokenFallback());
-  if (!token) {
-    throw new Error('No access token available yet (session not hydrated).');
-  }
+  if (!token) throw new Error('No access token available yet (session not hydrated).');
   return token;
 }
 
@@ -27,12 +32,12 @@ export const api = {
   async getMe(token?: string): Promise<UserMeResponse> {
     if (USE_MOCK) {
       return {
-        user: { id: "demo_user_123", email: "demo@clinic.com" },
+        user: { id: 'demo_user_123', email: 'demo@clinic.com' },
         clinic: {
-          id: "rec_uanco_pilot_alpha_89s7d",
-          name: "Lerae Medical Aesthetics",
+          id: 'rec_uanco_pilot_alpha_89s7d',
+          name: 'Lerae Medical Aesthetics',
           active: true,
-          enabled_features: ["overview", "prescreens", "ai-insight", "compliance", "feedback"],
+          enabled_features: ['overview', 'prescreens', 'ai-insight', 'compliance', 'feedback'],
         },
       };
     }
@@ -63,10 +68,13 @@ export const api = {
     return JSON.parse(text);
   },
 
-  async getPrescreens(params: { limit?: number; since?: string; clinicId?: string } = {}, token?: string): Promise<{ rows: PreScreenRecord[] }> {
+  async getPrescreens(
+    params: { limit?: number; since?: string; clinicId?: string } = {},
+    token?: string
+  ): Promise<{ rows: PreScreenRecord[] }> {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
-      let rows = data.preScreens;
+      const data = await api.getFullDashboardData(params.clinicId || 'rec_uanco_pilot_alpha_89s7d');
+      let rows = data.preScreens as any;
       if (params.limit) rows = rows.slice(0, params.limit);
       return { rows };
     }
@@ -80,9 +88,12 @@ export const api = {
     return JSON.parse(text);
   },
 
-  async getAnalytics(params: { range?: "7d" | "30d" | "90d"; clinicId?: string } = {}, token?: string): Promise<AnalyticsResponse> {
+  async getAnalytics(
+    params: { range?: '7d' | '30d' | '90d'; clinicId?: string } = {},
+    token?: string
+  ): Promise<AnalyticsResponse> {
     if (USE_MOCK) {
-      const data = await this.getFullDashboardData(params.clinicId || "rec_uanco_pilot_alpha_89s7d");
+      const data = await api.getFullDashboardData(params.clinicId || 'rec_uanco_pilot_alpha_89s7d');
       return {
         totals: {
           total: data.metrics.totalPreScreens,
@@ -104,6 +115,29 @@ export const api = {
 
     const text = await res.text();
     if (!res.ok) throw new Error(`GET /analytics failed (${res.status}): ${text}`);
+    return JSON.parse(text);
+  },
+
+  async updatePreScreen(
+    id: string,
+    updates: Record<string, any>, // allows booking_status now, eligibility later
+    token?: string
+  ): Promise<any> {
+    if (USE_MOCK) return { ok: true };
+
+    const t = await requireToken(token);
+
+    const res = await fetch(`/.netlify/functions/prescreen_update`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(t),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id, updates }),
+    });
+
+    const text = await res.text();
+    if (!res.ok) throw new Error(`POST /prescreen_update failed (${res.status}): ${text}`);
     return JSON.parse(text);
   },
 };

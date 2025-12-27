@@ -51,8 +51,10 @@ const App = () => {
       console.error('[exchangeCodeForSession] threw', err);
     }
 
+    // Always remove code so refresh doesn’t keep re-processing
     stripCodeFromUrl();
 
+    // If user landed on /auth/callback, bounce to /
     if (window.location.pathname === '/auth/callback') {
       window.location.replace('/');
     }
@@ -66,6 +68,7 @@ const App = () => {
 
     try {
       const token = tokenOverride ?? session?.access_token;
+
       if (!token) throw new Error('No access token available yet.');
 
       const me = await api.getMe(token);
@@ -78,9 +81,7 @@ const App = () => {
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
 
-      // ✅ CRITICAL CHANGE:
-      // Do NOT clear profile/dashboardData on transient failures.
-      // Only show error + keep last-known-good UI.
+      // ✅ CRITICAL: do NOT clear profile/dashboardData on transient failures.
       const msg =
         e?.message ||
         (typeof e === 'string'
@@ -105,8 +106,10 @@ const App = () => {
           return;
         }
 
+        // ✅ Critical: exchange code BEFORE getSession()
         await exchangeIfCodePresent();
 
+        // ✅ Now hydrate session (refresh-safe)
         const { data, error } = await supabase.auth.getSession();
         if (error) console.error('[getSession]', error);
 
@@ -166,16 +169,24 @@ const App = () => {
     window.history.pushState({}, '', `/${view}`);
   };
 
-  const handleUpdateRecord = (id: string, updates: any) => {
-    // ✅ Functional update avoids stale state / accidental wipes
+  // ✅ Persist booking status (optimistic UI + save to Airtable)
+  const handleUpdateRecord = async (id: string, updates: any) => {
+    // 1) Optimistic UI update (instant)
     setDashboardData((prev: any) => {
       if (!prev?.preScreens) return prev;
       const updated = prev.preScreens.map((r: any) => (r.id === id ? { ...r, ...updates } : r));
       return { ...prev, preScreens: updated };
     });
+
+    // 2) Persist to Airtable (so refresh keeps it)
+    try {
+      await api.updatePreScreen(id, updates, session?.access_token);
+    } catch (e) {
+      console.error('[updatePreScreen] failed', e);
+    }
   };
 
-  // Boot screen ONLY while auth is initializing
+  // 1) Boot screen ONLY while auth is initializing
   if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -193,7 +204,7 @@ const App = () => {
     );
   }
 
-  // Logged out -> Auth (and config warning)
+  // 2) Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -228,7 +239,6 @@ const App = () => {
   }
 
   const renderView = () => {
-    // ✅ If dashboardData exists but error happened, show data + error banner (not blank)
     if (!dashboardData) {
       return (
         <div className="h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
@@ -275,17 +285,17 @@ const App = () => {
 
     switch (currentView) {
       case 'overview':
-  return (
-    <Dashboard
-      clinicId={profile?.clinic?.id}
-      clinicName={profile?.clinic?.name}
-      onNavigate={handleNavigate}
-      preScreens={dashboardData?.preScreens || []}
-      metrics={dashboardData?.metrics || null}
-      questions={dashboardData?.questions || []}
-      dropOffs={dashboardData?.dropOffs || []}
-    />
-  );
+        return (
+          <Dashboard
+            clinicId={profile?.clinic?.id}
+            clinicName={profile?.clinic?.name}
+            onNavigate={handleNavigate}
+            preScreens={dashboardData?.preScreens || []}
+            metrics={dashboardData?.metrics || null}
+            questions={dashboardData?.questions || []}
+            dropOffs={dashboardData?.dropOffs || []}
+          />
+        );
 
       case 'prescreens':
         return (
@@ -317,17 +327,17 @@ const App = () => {
         return <FeedbackView />;
 
       default:
-  return (
-    <Dashboard
-      clinicId={profile?.clinic?.id}
-      clinicName={profile?.clinic?.name}
-      onNavigate={handleNavigate}
-      preScreens={dashboardData?.preScreens || []}
-      metrics={dashboardData?.metrics || null}
-      questions={dashboardData?.questions || []}
-      dropOffs={dashboardData?.dropOffs || []}
-    />
-  );
+        return (
+          <Dashboard
+            clinicId={profile?.clinic?.id}
+            clinicName={profile?.clinic?.name}
+            onNavigate={handleNavigate}
+            preScreens={dashboardData?.preScreens || []}
+            metrics={dashboardData?.metrics || null}
+            questions={dashboardData?.questions || []}
+            dropOffs={dashboardData?.dropOffs || []}
+          />
+        );
     }
   };
 
