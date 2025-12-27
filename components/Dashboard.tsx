@@ -8,7 +8,7 @@ type Props = {
   clinicName?: string;
   onNavigate: (view: string) => void;
 
-  // ✅ live dashboard payload pieces (from /.netlify/functions/dashboard)
+  // live dashboard payload pieces (from /.netlify/functions/dashboard)
   preScreens?: any[];
   dropOffs?: any[];
   questions?: any[];
@@ -17,9 +17,11 @@ type Props = {
 
 function normElig(v: any) {
   const s = String(v || '').trim().toLowerCase();
-  if (s === 'pass') return 'Pass';
-  if (s === 'fail') return 'Fail';
-  if (s === 'review') return 'Review';
+  if (s === 'pass') return 'SAFE';
+  if (s === 'review') return 'REVIEW';
+  if (s === 'fail') return 'UNSUITABLE';
+  // already mapped or unknown
+  if (['safe', 'review', 'unsuitable'].includes(s)) return String(v).toUpperCase();
   return v ? String(v) : '—';
 }
 
@@ -39,7 +41,12 @@ function parseDateMaybe(v: any) {
 
 function formatShortDate(d: Date | null) {
   if (!d) return '';
-  return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const Dashboard: React.FC<Props> = ({
@@ -57,19 +64,27 @@ const Dashboard: React.FC<Props> = ({
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
     const tempFails = Number(metrics?.tempFails ?? 0);
-    const hardFails = Number(metrics?.hardFails ?? 0);
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
     const pass = Math.round(total * (passRate / 100));
     const dropoffs = Math.round(total * (dropOffRate / 100));
-    const review = tempFails; // review bucket
+    const review = tempFails;
 
-    return { total, pass, review, dropoffs, hardFails };
+    return { total, pass, review, dropoffs };
   }, [metrics, preScreens.length]);
 
   const recent = useMemo(() => {
-    // Sort by best-known timestamp fields (handles your webhook_timestamp situation)
-    const dateKeys = ['webhook_timestamp', 'Webhook Timestamp', 'created_at', 'Created', 'Created Time', 'submitted_at', 'Submitted At'];
+    // Sort by best-known timestamp fields
+    const dateKeys = [
+      'webhook_timestamp',
+      'Webhook Timestamp',
+      'created_at',
+      'Created',
+      'Created Time',
+      'submitted_at',
+      'Submitted At',
+    ];
+
     const copy = [...preScreens];
 
     copy.sort((a, b) => {
@@ -101,7 +116,7 @@ const Dashboard: React.FC<Props> = ({
         <KPICard title="Drop-offs" value={totals.dropoffs} />
       </div>
 
-      {/* Main grid: Recent Activity + Insight panel */}
+      {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent Activity */}
         <div className="lg:col-span-2 bg-white rounded-3xl border shadow-soft overflow-hidden">
@@ -123,34 +138,68 @@ const Dashboard: React.FC<Props> = ({
           ) : (
             <div className="divide-y">
               {recent.map((r: any) => {
-                const name = getFirstNonEmpty(r, ['Name', 'name']) || 'Unnamed';
+                const name =
+                  getFirstNonEmpty(r, ['Name', 'name']) ||
+                  getFirstNonEmpty(r, ['Full Name', 'full_name']) ||
+                  'Unnamed';
+
                 const email = getFirstNonEmpty(r, ['Email', 'email']) || '';
-                const treatment = getFirstNonEmpty(r, ['interested_treatments', 'Interested Treatments', 'treatment_selected', 'Treatment']) || '—';
+
+                const treatment =
+                  getFirstNonEmpty(r, [
+                    'interested_treatments',
+                    'Interested Treatments',
+                    'treatment_selected',
+                    'Treatment',
+                  ]) || '—';
+
                 const elig = normElig(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
-                const d = parseDateMaybe(getFirstNonEmpty(r, ['webhook_timestamp', 'Webhook Timestamp', 'created_at', 'Created', 'Created Time', 'submitted_at', 'Submitted At']));
+                const d = parseDateMaybe(
+                  getFirstNonEmpty(r, [
+                    'webhook_timestamp',
+                    'Webhook Timestamp',
+                    'created_at',
+                    'Created',
+                    'Created Time',
+                    'submitted_at',
+                    'Submitted At',
+                  ]),
+                );
 
                 return (
                   <button
                     key={r.id}
-                    onClick={() => setSelected(r)}
+                    onClick={() =>
+                      setSelected({
+                        ...r,
+                        // 👇 normalize into what DrillDownPanel expects
+                        name,
+                        email,
+                        eligibility: elig,
+                        treatment_selected: treatment,
+                      })
+                    }
                     className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-3">
                           <p className="text-sm font-medium truncate">{name}</p>
+
                           <span
                             className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border
-                              ${String(elig).toLowerCase() === 'pass'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : String(elig).toLowerCase() === 'review'
-                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                : 'bg-rose-50 text-rose-700 border-rose-100'
+                              ${
+                                String(elig).toLowerCase() === 'safe'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                  : String(elig).toLowerCase() === 'review'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                  : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}
                           >
                             {elig}
                           </span>
                         </div>
+
                         <p className="text-[12px] text-uanco-500 truncate">
                           {email} {email && '•'} {String(treatment)}
                         </p>
@@ -167,7 +216,7 @@ const Dashboard: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Insight panel (lightweight, uses existing data without changing design too much yet) */}
+        {/* AI Insight */}
         <div className="bg-white rounded-3xl border shadow-soft p-6">
           <h3 className="text-lg font-medium">AI Insight</h3>
           <p className="text-[11px] text-uanco-400 mt-1">Quick snapshot from recent activity</p>
@@ -198,7 +247,6 @@ const Dashboard: React.FC<Props> = ({
       {/* Drilldown */}
       {selected && (
         <DrillDownPanel
-          // We pass both names to avoid guessing what DrillDownPanel expects
           record={selected}
           prescreen={selected}
           onClose={() => setSelected(null)}
