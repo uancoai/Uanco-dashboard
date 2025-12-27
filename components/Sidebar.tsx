@@ -16,7 +16,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isOpen, onCl
   const menuItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'prescreens', label: 'Pre-Screens', icon: Users },
-    { id: 'ai-insight', label: 'AI Insight', icon: Sparkles },
+    { id: 'ai-insight', label: 'Clinic Signals', icon: Sparkles },
     { id: 'compliance', label: 'Compliance', icon: ShieldCheck },
     { id: 'feedback', label: 'Feedback', icon: MessageSquarePlus },
   ];
@@ -36,7 +36,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isOpen, onCl
             const isActive = currentView === item.id;
             const Icon = item.icon;
             return (
-              <button key={item.id} onClick={() => onNavigate(item.id)} className={`w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all ${isActive ? 'bg-uanco-900 text-white shadow-soft' : 'text-uanco-500 hover:bg-uanco-50'}`}>
+              <button
+                key={item.id}
+                onClick={() => onNavigate(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-3 text-sm font-medium rounded-xl transition-all ${
+                  isActive ? 'bg-uanco-900 text-white shadow-soft' : 'text-uanco-500 hover:bg-uanco-50'
+                }`}
+              >
                 <Icon size={18} /> {item.label}
               </button>
             );
@@ -46,4 +52,5 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isOpen, onCl
     </>
   );
 };
+
 export default Sidebar;
