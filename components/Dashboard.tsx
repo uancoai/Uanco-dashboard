@@ -17,11 +17,9 @@ type Props = {
 
 function normElig(v: any) {
   const s = String(v || '').trim().toLowerCase();
-  if (s === 'pass') return 'SAFE';
-  if (s === 'review') return 'REVIEW';
-  if (s === 'fail') return 'UNSUITABLE';
-  // already mapped or unknown
-  if (['safe', 'review', 'unsuitable'].includes(s)) return String(v).toUpperCase();
+  if (s === 'pass') return 'Pass';
+  if (s === 'fail') return 'Fail';
+  if (s === 'review') return 'Review';
   return v ? String(v) : '—';
 }
 
@@ -41,12 +39,7 @@ function parseDateMaybe(v: any) {
 
 function formatShortDate(d: Date | null) {
   if (!d) return '';
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 const Dashboard: React.FC<Props> = ({
@@ -64,17 +57,23 @@ const Dashboard: React.FC<Props> = ({
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
     const tempFails = Number(metrics?.tempFails ?? 0);
+    const hardFails = Number(metrics?.hardFails ?? 0);
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
     const pass = Math.round(total * (passRate / 100));
     const dropoffs = Math.round(total * (dropOffRate / 100));
     const review = tempFails;
 
-    return { total, pass, review, dropoffs };
-  }, [metrics, preScreens.length]);
+    // ✅ New: booked count from prescreens
+    const booked = preScreens.filter((r: any) => {
+      const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
+      return String(raw || '').trim().toLowerCase() === 'booked';
+    }).length;
+
+    return { total, pass, review, dropoffs, hardFails, booked };
+  }, [metrics, preScreens]);
 
   const recent = useMemo(() => {
-    // Sort by best-known timestamp fields
     const dateKeys = [
       'webhook_timestamp',
       'Webhook Timestamp',
@@ -84,7 +83,6 @@ const Dashboard: React.FC<Props> = ({
       'submitted_at',
       'Submitted At',
     ];
-
     const copy = [...preScreens];
 
     copy.sort((a, b) => {
@@ -108,15 +106,16 @@ const Dashboard: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI row (now includes Booked) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
         <KPICard title="Safe to Book" value={totals.pass} trend="Healthy" />
         <KPICard title="Manual Review" value={totals.review} subValue="Attention" />
         <KPICard title="Drop-offs" value={totals.dropoffs} />
+        <KPICard title="Booked" value={totals.booked} />
       </div>
 
-      {/* Main grid */}
+      {/* Main grid: Recent Activity + Insight panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent Activity */}
         <div className="lg:col-span-2 bg-white rounded-3xl border shadow-soft overflow-hidden">
@@ -138,13 +137,8 @@ const Dashboard: React.FC<Props> = ({
           ) : (
             <div className="divide-y">
               {recent.map((r: any) => {
-                const name =
-                  getFirstNonEmpty(r, ['Name', 'name']) ||
-                  getFirstNonEmpty(r, ['Full Name', 'full_name']) ||
-                  'Unnamed';
-
+                const name = getFirstNonEmpty(r, ['Name', 'name']) || 'Unnamed';
                 const email = getFirstNonEmpty(r, ['Email', 'email']) || '';
-
                 const treatment =
                   getFirstNonEmpty(r, [
                     'interested_treatments',
@@ -152,7 +146,6 @@ const Dashboard: React.FC<Props> = ({
                     'treatment_selected',
                     'Treatment',
                   ]) || '—';
-
                 const elig = normElig(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
@@ -163,51 +156,37 @@ const Dashboard: React.FC<Props> = ({
                     'Created Time',
                     'submitted_at',
                     'Submitted At',
-                  ]),
+                  ])
                 );
 
                 return (
                   <button
                     key={r.id}
-                    onClick={() =>
-                      setSelected({
-                        ...r,
-                        // 👇 normalize into what DrillDownPanel expects
-                        name,
-                        email,
-                        eligibility: elig,
-                        treatment_selected: treatment,
-                      })
-                    }
+                    onClick={() => setSelected(r)}
                     className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-3">
                           <p className="text-sm font-medium truncate">{name}</p>
-
                           <span
                             className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border
-                              ${
-                                String(elig).toLowerCase() === 'safe'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                  : String(elig).toLowerCase() === 'review'
-                                  ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                  : 'bg-rose-50 text-rose-700 border-rose-100'
+                              ${String(elig).toLowerCase() === 'pass'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                : String(elig).toLowerCase() === 'review'
+                                ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}
                           >
                             {elig}
                           </span>
                         </div>
-
                         <p className="text-[12px] text-uanco-500 truncate">
                           {email} {email && '•'} {String(treatment)}
                         </p>
                       </div>
 
-                      <div className="text-[11px] text-uanco-400 whitespace-nowrap">
-                        {formatShortDate(d)}
-                      </div>
+                      <div className="text-[11px] text-uanco-400 whitespace-nowrap">{formatShortDate(d)}</div>
                     </div>
                   </button>
                 );
@@ -216,7 +195,7 @@ const Dashboard: React.FC<Props> = ({
           )}
         </div>
 
-        {/* AI Insight */}
+        {/* Insight panel */}
         <div className="bg-white rounded-3xl border shadow-soft p-6">
           <h3 className="text-lg font-medium">AI Insight</h3>
           <p className="text-[11px] text-uanco-400 mt-1">Quick snapshot from recent activity</p>
@@ -239,7 +218,7 @@ const Dashboard: React.FC<Props> = ({
           </div>
 
           <div className="mt-6 text-[12px] text-uanco-500">
-            Click a patient to view the full pre-screen + AI summary.
+            Click a client to view the full pre-screen + AI summary.
           </div>
         </div>
       </div>
