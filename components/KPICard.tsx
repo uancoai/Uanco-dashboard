@@ -117,3 +117,138 @@ const KPICard: React.FC<Props> = ({ title, value, variant = "light", trend, subV
 };
 
 export default KPICard;
+
+import React, { useEffect, useRef, useState, useMemo } from "react";
+import { Info } from "lucide-react";
+
+type Props = {
+  title: string;
+  value: any;
+  variant?: "dark" | "light";
+  trend?: string;
+  subValue?: string;
+
+  // Optional tooltip text
+  info?: string;
+};
+
+const KPICard: React.FC<Props> = ({
+  title,
+  value,
+  variant = "light",
+  trend,
+  subValue,
+  info,
+}) => {
+  const isDark = variant === "dark";
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close tooltip if you tap/click anywhere outside the card
+  useEffect(() => {
+    if (!open) return;
+
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (!wrapRef.current) return;
+      const target = e.target as Node;
+      if (!wrapRef.current.contains(target)) setOpen(false);
+    };
+
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown as any);
+    };
+  }, [open]);
+
+  const cardClass = useMemo(() => {
+    return `relative rounded-3xl border shadow-soft overflow-visible ${
+      isDark ? "bg-[#111] border-[#111] text-white" : "bg-white border-uanco-100 text-uanco-900"
+    }`;
+  }, [isDark]);
+
+  return (
+    <div
+      ref={wrapRef}
+      className={cardClass}
+      // hover support (desktop)
+      onMouseEnter={() => info && setOpen(true)}
+      onMouseLeave={() => info && setOpen(false)}
+    >
+      {/* Info icon pinned top-right (absolute) so it never affects layout */}
+      {info && (
+        <div className="absolute top-4 right-4 z-10">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+            className={`h-10 w-10 rounded-full flex items-center justify-center transition-colors border ${
+              isDark
+                ? "bg-white/5 border-white/10 text-white/70 hover:text-white hover:bg-white/10"
+                : "bg-uanco-50 border-uanco-100 text-uanco-400 hover:text-uanco-900 hover:bg-uanco-100"
+            }`}
+            aria-label={`Info: ${title}`}
+          >
+            <Info size={18} />
+          </button>
+
+          {open && (
+            <div
+              className={`absolute right-0 mt-3 w-[260px] rounded-2xl shadow-2xl border ${
+                isDark ? "bg-[#0b0b0b] text-white/90 border-white/10" : "bg-white text-uanco-700 border-uanco-100"
+              }`}
+            >
+              <div className="px-4 py-3 text-[11px] leading-relaxed">
+                <p className="font-medium">{info}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Content (padding + right padding so text never sits under the icon) */}
+      <div className="p-8">
+        <p
+          className={`text-[10px] font-bold uppercase tracking-[0.3em] pr-14 ${
+            isDark ? "text-white/60" : "text-uanco-300"
+          }`}
+        >
+          {title}
+        </p>
+
+        <div className="mt-6 flex items-end justify-between gap-4">
+          <div className={`text-6xl font-light leading-none ${isDark ? "text-white" : "text-uanco-900"}`}>{value}</div>
+
+          {(trend || subValue) && (
+            <div className="flex items-center gap-2">
+              {trend && (
+                <span
+                  className={`text-[11px] px-3 py-1 rounded-full font-medium ${
+                    isDark ? "bg-white/10 text-white/80" : "bg-uanco-50 text-uanco-600"
+                  }`}
+                >
+                  {trend}
+                </span>
+              )}
+              {subValue && (
+                <span
+                  className={`text-[11px] px-3 py-1 rounded-full font-medium ${
+                    isDark ? "bg-white/10 text-white/80" : "bg-uanco-50 text-uanco-600"
+                  }`}
+                >
+                  {subValue}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default KPICard;
