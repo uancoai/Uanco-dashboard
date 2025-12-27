@@ -10,7 +10,7 @@ import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
 
-import { LogOut, Loader2, AlertCircle, Zap, RefreshCw } from 'lucide-react';
+import { LogOut, Loader2, AlertCircle, Menu, RefreshCw } from 'lucide-react';
 
 type SessionState = any | null; // null=logged out, object=logged in
 
@@ -358,11 +358,12 @@ const App = () => {
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-uanco-100 flex items-center justify-between px-6 md:px-8 sticky top-0 z-20">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setSidebarOpen(true)}
-              className="md:hidden p-2 -ml-2 text-uanco-400 hover:text-uanco-900 transition-colors"
-            >
-              <Zap size={20} />
-            </button>
+  onClick={() => setSidebarOpen(true)}
+  className="md:hidden p-2 -ml-2 text-uanco-400 hover:text-uanco-900 transition-colors"
+  aria-label="Open menu"
+>
+  <Menu size={22} />
+</button>
 
             <div className="flex flex-col">
               <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
