@@ -68,7 +68,6 @@ const App = () => {
 
     try {
       const token = tokenOverride ?? session?.access_token;
-
       if (!token) throw new Error('No access token available yet.');
 
       const me = await api.getMe(token);
@@ -294,7 +293,7 @@ const App = () => {
             metrics={dashboardData?.metrics || null}
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
-            onUpdateRecord={handleUpdateRecord}  // ✅ ADD THIS
+            onUpdateRecord={handleUpdateRecord}
           />
         );
 
@@ -308,13 +307,13 @@ const App = () => {
         );
 
       case 'ai-insight':
-  return (
-    <TreatmentsView
-  stats={dashboardData?.metrics?.treatmentStats ?? []}
-  questions={dashboardData?.questions ?? []}
-  preScreens={dashboardData?.preScreens ?? []}
-/>
-  );
+        return (
+          <TreatmentsView
+            stats={dashboardData?.metrics?.treatmentStats ?? []}
+            questions={dashboardData?.questions ?? []}
+            preScreens={dashboardData?.preScreens ?? []}
+          />
+        );
 
       case 'compliance':
         return (
@@ -338,7 +337,7 @@ const App = () => {
             metrics={dashboardData?.metrics || null}
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
-            onUpdateRecord={handleUpdateRecord}  // ✅ ADD THIS TOO
+            onUpdateRecord={handleUpdateRecord}
           />
         );
     }
