@@ -31,8 +31,8 @@ const App = () => {
   // Prevent overlapping fetches
   const fetchingRef = useRef(false);
 
-  // ✅ Single source of truth for clinic name shown in header
-  const clinicName = profile?.clinic?.name || dashboardData?.clinic?.name || null;
+  // ✅ Single source of truth for the clinic name
+  const clinicName: string | null = profile?.clinic?.name ?? null;
 
   const stripCodeFromUrl = () => {
     const u = new URL(window.location.href);
@@ -54,10 +54,8 @@ const App = () => {
       console.error('[exchangeCodeForSession] threw', err);
     }
 
-    // Always remove code so refresh doesn’t keep re-processing
     stripCodeFromUrl();
 
-    // If user landed on /auth/callback, bounce to /
     if (window.location.pathname === '/auth/callback') {
       window.location.replace('/');
     }
@@ -83,12 +81,12 @@ const App = () => {
     } catch (e: any) {
       console.error('[fetchProfileAndData] failed', e);
 
-      // ✅ CRITICAL: do NOT clear profile/dashboardData on transient failures.
       const msg =
         e?.message ||
         (typeof e === 'string'
           ? e
           : 'Failed to load clinic data. Check Netlify functions + auth token.');
+
       setDataError(msg);
     } finally {
       fetchingRef.current = false;
@@ -108,10 +106,8 @@ const App = () => {
           return;
         }
 
-        // ✅ Critical: exchange code BEFORE getSession()
         await exchangeIfCodePresent();
 
-        // ✅ Now hydrate session (refresh-safe)
         const { data, error } = await supabase.auth.getSession();
         if (error) console.error('[getSession]', error);
 
@@ -147,7 +143,6 @@ const App = () => {
       if (newSession) {
         await fetchProfileAndData(newSession.access_token);
       } else {
-        // ✅ ONLY time we clear data: real logout
         setProfile(null);
         setDashboardData(null);
         setDataError(null);
@@ -173,14 +168,12 @@ const App = () => {
 
   // ✅ Persist booking status (optimistic UI + save to Airtable)
   const handleUpdateRecord = async (id: string, updates: any) => {
-    // 1) Optimistic UI update (instant)
     setDashboardData((prev: any) => {
       if (!prev?.preScreens) return prev;
       const updated = prev.preScreens.map((r: any) => (r.id === id ? { ...r, ...updates } : r));
       return { ...prev, preScreens: updated };
     });
 
-    // 2) Persist to Airtable (so refresh keeps it)
     try {
       await api.updatePreScreen(id, updates, session?.access_token);
     } catch (e) {
@@ -188,7 +181,6 @@ const App = () => {
     }
   };
 
-  // 1) Boot screen ONLY while auth is initializing
   if (hasConfig && !authReady) {
     return (
       <div className="min-h-screen bg-[#fafafa] flex flex-col items-center justify-center p-6 text-center">
@@ -206,7 +198,6 @@ const App = () => {
     );
   }
 
-  // 2) Logged out -> Auth (and config warning)
   if (!session) {
     if (!hasConfig) {
       return (
@@ -358,7 +349,6 @@ const App = () => {
       />
 
       <main className="flex-1 md:ml-64 min-h-screen flex flex-col transition-all duration-300">
-        {/* ✅ Header (fixed + clinic name) */}
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-uanco-100 flex items-center justify-between px-6 md:px-8 sticky top-0 z-20">
           <div className="flex items-center gap-4 min-w-0">
             <button
