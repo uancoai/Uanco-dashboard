@@ -310,10 +310,10 @@ const App = () => {
       case 'ai-insight':
   return (
     <TreatmentsView
-      preScreens={dashboardData?.preScreens ?? []}
-      questions={dashboardData?.questions ?? []}
-      metrics={dashboardData?.metrics ?? null}
-    />
+  stats={dashboardData?.metrics?.treatmentStats ?? []}
+  questions={dashboardData?.questions ?? []}
+  preScreens={dashboardData?.preScreens ?? []}
+/>
   );
 
       case 'compliance':
