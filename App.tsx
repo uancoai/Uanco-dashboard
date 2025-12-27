@@ -366,12 +366,15 @@ const App = () => {
 </button>
 
             <div className="flex flex-col">
-              <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Active Identity
-              </p>
-              <span className="text-xs font-medium text-uanco-900 lowercase">{session?.user?.email}</span>
-            </div>
+  <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
+    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+    Active Clinic
+  </p>
+
+  <span className="text-xs font-medium text-uanco-900 truncate max-w-[220px]">
+    {profile?.clinic?.name || "Clinic"}
+  </span>
+</div>
           </div>
 
           <button
