@@ -13,14 +13,26 @@ type Props = {
   dropOffs?: any[];
   questions?: any[];
   metrics?: any;
+
+  // OPTIONAL (recommended): if you pass this from App.tsx, booking toggle works from Overview drilldown too
+  onUpdateRecord?: (id: string, updates: any) => void;
 };
 
-function normElig(v: any) {
-  const s = String(v || '').trim().toLowerCase();
-  if (s === 'pass') return 'Pass';
-  if (s === 'fail') return 'Fail';
-  if (s === 'review') return 'Review';
-  return v ? String(v) : '—';
+function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'pass') return 'SAFE';
+  if (s === 'review') return 'REVIEW';
+  if (s === 'fail') return 'UNSUITABLE';
+  if (s === 'safe') return 'SAFE';
+  if (s === 'unsuitable') return 'UNSUITABLE';
+  return raw ? (String(raw).toUpperCase() as any) : '—';
+}
+
+function badgeClasses(label: string) {
+  const s = String(label || '').toLowerCase();
+  if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+  if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
+  return 'bg-rose-50 text-rose-700 border-rose-100';
 }
 
 function getFirstNonEmpty(obj: any, keys: string[]) {
@@ -49,6 +61,7 @@ const Dashboard: React.FC<Props> = ({
   preScreens = [],
   questions = [],
   metrics = {},
+  onUpdateRecord,
 }) => {
   const [selected, setSelected] = useState<any | null>(null);
 
@@ -57,20 +70,19 @@ const Dashboard: React.FC<Props> = ({
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
     const tempFails = Number(metrics?.tempFails ?? 0);
-    const hardFails = Number(metrics?.hardFails ?? 0);
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
-    const pass = Math.round(total * (passRate / 100));
-    const dropoffs = Math.round(total * (dropOffRate / 100));
+    const safeToBook = Math.round(total * (passRate / 100));
     const review = tempFails;
+    const dropoffs = Math.round(total * (dropOffRate / 100));
 
-    // ✅ New: booked count from prescreens
+    // Booked count from prescreens
     const booked = preScreens.filter((r: any) => {
       const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
       return String(raw || '').trim().toLowerCase() === 'booked';
     }).length;
 
-    return { total, pass, review, dropoffs, hardFails, booked };
+    return { total, safeToBook, review, dropoffs, booked };
   }, [metrics, preScreens]);
 
   const recent = useMemo(() => {
@@ -106,13 +118,36 @@ const Dashboard: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* KPI row (now includes Booked) */}
+      {/* KPI row (includes Booked + tooltips) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
-        <KPICard title="Safe to Book" value={totals.pass} trend="Healthy" />
-        <KPICard title="Manual Review" value={totals.review} subValue="Attention" />
-        <KPICard title="Drop-offs" value={totals.dropoffs} />
-        <KPICard title="Booked" value={totals.booked} />
+        <KPICard
+          title="Total Prescreens"
+          value={totals.total}
+          variant="dark"
+          info="Clients who have completed a digital pre-screen for this clinic within the selected time period."
+        />
+        <KPICard
+          title="Safe to Book"
+          value={totals.safeToBook}
+          trend="Healthy"
+          info="Clients who passed the pre-screen and are suitable to proceed, subject to practitioner review."
+        />
+        <KPICard
+          title="Manual Review"
+          value={totals.review}
+          subValue="Attention"
+          info="Clients whose pre-screen responses require practitioner assessment before a booking decision."
+        />
+        <KPICard
+          title="Drop-offs"
+          value={totals.dropoffs}
+          info="Clients who started but did not complete the pre-screen process."
+        />
+        <KPICard
+          title="Booked"
+          value={totals.booked}
+          info="Clients who have been confirmed and marked as booked by practitioner."
+        />
       </div>
 
       {/* Main grid: Recent Activity + Insight panel */}
@@ -146,7 +181,8 @@ const Dashboard: React.FC<Props> = ({
                     'treatment_selected',
                     'Treatment',
                   ]) || '—';
-                const elig = normElig(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
+
+                const eligUi = toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
                     'webhook_timestamp',
@@ -170,17 +206,14 @@ const Dashboard: React.FC<Props> = ({
                         <div className="flex items-center gap-3">
                           <p className="text-sm font-medium truncate">{name}</p>
                           <span
-                            className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border
-                              ${String(elig).toLowerCase() === 'pass'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                : String(elig).toLowerCase() === 'review'
-                                ? 'bg-amber-50 text-amber-700 border-amber-100'
-                                : 'bg-rose-50 text-rose-700 border-rose-100'
-                              }`}
+                            className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
+                              eligUi
+                            )}`}
                           >
-                            {elig}
+                            {eligUi}
                           </span>
                         </div>
+
                         <p className="text-[12px] text-uanco-500 truncate">
                           {email} {email && '•'} {String(treatment)}
                         </p>
@@ -207,7 +240,7 @@ const Dashboard: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Pass rate</span>
+              <span className="text-[12px] text-uanco-500">Safe rate</span>
               <span className="text-sm font-medium">{Number(metrics?.passRate ?? 0)}%</span>
             </div>
 
@@ -229,6 +262,7 @@ const Dashboard: React.FC<Props> = ({
           record={selected}
           prescreen={selected}
           onClose={() => setSelected(null)}
+          onUpdateRecord={onUpdateRecord}
         />
       )}
     </div>

@@ -294,6 +294,7 @@ const App = () => {
             metrics={dashboardData?.metrics || null}
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
+            onUpdateRecord={handleUpdateRecord}  // ✅ ADD THIS
           />
         );
 
@@ -336,6 +337,7 @@ const App = () => {
             metrics={dashboardData?.metrics || null}
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
+            onUpdateRecord={handleUpdateRecord}  // ✅ ADD THIS TOO
           />
         );
     }
