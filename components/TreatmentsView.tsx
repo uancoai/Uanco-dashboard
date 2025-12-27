@@ -88,22 +88,15 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
   }, [preScreens]);
 
   const questionInsights = useMemo(() => {
-    const texts = questions
-      .map(extractQuestionText)
-      .filter(Boolean);
+    const texts = questions.map(extractQuestionText).filter(Boolean);
 
     // Count themes
     const themeCounts = new Map<string, number>();
-    const examplesByTheme = new Map<string, string[]>();
 
     for (const txt of texts) {
       const themes = detectThemes(txt);
-
       for (const th of themes) {
         themeCounts.set(th, (themeCounts.get(th) || 0) + 1);
-        if (!examplesByTheme.has(th)) examplesByTheme.set(th, []);
-        const arr = examplesByTheme.get(th)!;
-        if (arr.length < 3 && !arr.includes(txt)) arr.push(txt);
       }
     }
 
@@ -113,32 +106,45 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
         key,
         label: THEME_RULES.find((r) => r.key === key)?.label || (key === "other" ? "Other" : key),
         count,
-        examples: examplesByTheme.get(key) || [],
       }));
 
-    // Show a few recent raw questions too (so it feels “real”)
-    const recentExamples = texts.slice(0, 6);
-
-    return { total: texts.length, themes: sortedThemes, recentExamples };
+    return { total: texts.length, themes: sortedThemes };
   }, [questions]);
 
+  // ✅ Remove "Other" from the list so the UI stays useful (and avoids frustration).
+  const meaningfulThemes = useMemo(() => {
+    return questionInsights.themes.filter((t) => String(t.key).toLowerCase() !== "other");
+  }, [questionInsights.themes]);
+
   const emerging = useMemo(() => {
-    const top = questionInsights.themes[0];
-    const second = questionInsights.themes[1];
+    // Only show an "emerging pattern" if:
+    // - we have a real theme (not Other)
+    // - it shows up at least twice (avoid noise)
+    const top = meaningfulThemes[0];
+    const hasSignal = !!top && Number(top.count) >= 2;
 
-    // Simple “so what” text. Not AI magic, just helpful copy.
-    const headline = top
-      ? `Most common concern: ${top.label}`
-      : "Not enough question data yet";
+    if (!hasSignal) {
+      return {
+        headline: "No clear behavioural patterns detected yet.",
+        secondary: null as string | null,
+        suggestion: null as string | null,
+      };
+    }
 
-    const suggestion = top
-      ? `Quick win: add a short FAQ post answering “${top.examples?.[0] || top.label}”.`
-      : "Once you have more questions logged, patterns will appear here automatically.";
+    // Optional secondary only if it exists and has at least 2 hits as well
+    const second = meaningfulThemes[1];
+    const secondary =
+      second && Number(second.count) >= 2 ? `Next most common: ${second.label}` : null;
 
-    const secondary = second ? `Next most common: ${second.label}` : null;
+    // Keep suggestion simple and non-annoying.
+    const suggestion = `Consider adding a short FAQ or post that answers this theme clearly.`;
 
-    return { headline, secondary, suggestion };
-  }, [questionInsights]);
+    return {
+      headline: `Most common theme: ${top.label}`,
+      secondary,
+      suggestion,
+    };
+  }, [meaningfulThemes]);
 
   return (
     <div className="space-y-8">
@@ -193,28 +199,19 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
               <span className="font-medium">{questionInsights.total}</span>
             </div>
 
-            {questionInsights.themes.slice(0, 3).map((t) => (
-              <div key={t.key} className="flex justify-between text-sm">
-                <span className="text-uanco-500">{t.label}</span>
-                <span className="font-medium">{t.count}</span>
-              </div>
-            ))}
-          </div>
-
-          {questionInsights.recentExamples.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-uanco-100">
-              <p className="text-[11px] font-bold uppercase tracking-widest text-uanco-400 mb-2">
-                Example questions
+            {meaningfulThemes.length === 0 ? (
+              <p className="text-[13px] text-uanco-500 mt-4">
+                No recurring question themes detected yet.
               </p>
-              <ul className="space-y-2 text-[12px] text-uanco-600">
-                {questionInsights.recentExamples.slice(0, 3).map((q, i) => (
-                  <li key={i} className="line-clamp-2">
-                    • {q}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+            ) : (
+              meaningfulThemes.slice(0, 3).map((t) => (
+                <div key={t.key} className="flex justify-between text-sm">
+                  <span className="text-uanco-500">{t.label}</span>
+                  <span className="font-medium">{t.count}</span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {/* 3) Emerging patterns */}
@@ -227,7 +224,7 @@ export default function TreatmentsView({ stats = [], questions = [], preScreens 
           <div className="mt-6 space-y-3">
             <p className="text-sm font-medium text-uanco-900">{emerging.headline}</p>
             {emerging.secondary && <p className="text-sm text-uanco-600">{emerging.secondary}</p>}
-            <p className="text-sm text-uanco-600">{emerging.suggestion}</p>
+            {emerging.suggestion && <p className="text-sm text-uanco-600">{emerging.suggestion}</p>}
           </div>
         </div>
       </div>
