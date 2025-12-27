@@ -31,6 +31,9 @@ const App = () => {
   // Prevent overlapping fetches
   const fetchingRef = useRef(false);
 
+  // ✅ Single source of truth for clinic name shown in header
+  const clinicName = profile?.clinic?.name || dashboardData?.clinic?.name || null;
+
   const stripCodeFromUrl = () => {
     const u = new URL(window.location.href);
     if (u.searchParams.has('code')) {
@@ -355,26 +358,27 @@ const App = () => {
       />
 
       <main className="flex-1 md:ml-64 min-h-screen flex flex-col transition-all duration-300">
+        {/* ✅ Header (fixed + clinic name) */}
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-uanco-100 flex items-center justify-between px-6 md:px-8 sticky top-0 z-20">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-0">
             <button
-  onClick={() => setSidebarOpen(true)}
-  className="md:hidden p-2 -ml-2 text-uanco-400 hover:text-uanco-900 transition-colors"
-  aria-label="Open menu"
->
-  <Menu size={22} />
-</button>
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden p-2 -ml-2 text-uanco-400 hover:text-uanco-900 transition-colors"
+              aria-label="Open menu"
+            >
+              <Menu size={22} />
+            </button>
 
-            <div className="flex flex-col">
-  <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
-    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-    Active Clinic
-  </p>
+            <div className="flex flex-col min-w-0">
+              <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                Active Clinic
+              </p>
 
-  <span className="text-xs font-medium text-uanco-900 truncate max-w-[220px]">
-    {profile?.clinic?.name || "Clinic"}
-  </span>
-</div>
+              <span className="text-xs font-medium text-uanco-900 truncate max-w-[220px]">
+                {clinicName ?? 'Loading clinic…'}
+              </span>
+            </div>
           </div>
 
           <button
