@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Check, CalendarCheck, Phone, Mail } from 'lucide-react';
+import { X, CalendarCheck, Check, Mail, Phone, AlertTriangle } from 'lucide-react';
 
 type Props = {
-  record: any;
-  prescreen?: any;
+  record: any;        // normalized (name/email/eligibility/booking_status)
+  prescreen?: any;    // raw Airtable fields (age_verified, pregnant_breastfeeding, etc.)
   onClose: () => void;
   onUpdateRecord?: (id: string, updates: any) => void;
 };
 
-function first(obj: any, keys: string[]) {
+function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
     const v = obj?.[k];
     if (v !== undefined && v !== null && String(v).trim() !== '') return v;
@@ -26,7 +26,7 @@ function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
   return raw ? (String(raw).toUpperCase() as any) : '—';
 }
 
-function badgeClasses(label: string) {
+function eligBadgeClasses(label: string) {
   const s = String(label || '').toLowerCase();
   if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
   if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
@@ -34,48 +34,77 @@ function badgeClasses(label: string) {
 }
 
 const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateRecord }) => {
-  const row = prescreen || record;
-
-  const name = useMemo(() => first(row, ['name', 'Name']) || first(record, ['name', 'Name']) || 'Unnamed', [row, record]);
-  const email = useMemo(() => first(row, ['email', 'Email']) || first(record, ['email', 'Email']) || '', [row, record]);
-  const phone = useMemo(
-    () => first(row, ['phone', 'Phone', 'mobile', 'Mobile']) || first(record, ['phone', 'Phone', 'mobile', 'Mobile']) || '',
-    [row, record]
-  );
-
-  const eligRaw = useMemo(() => first(row, ['eligibility', 'Eligibility']) || first(record, ['eligibility', 'Eligibility']), [row, record]);
-  const eligibilityUi = toUiEligibility(eligRaw);
-
-  // Use either the normalized booking_status (from your PreScreens normalize), or Airtable field names if present
-  const bookingRaw =
-    first(record, ['booking_status', 'Booking Status']) ??
-    first(row, ['booking_status', 'Booking Status']) ??
-    'Pending';
-
-  const [bookingStatus, setBookingStatus] = useState<string>(String(bookingRaw));
+  const [mode, setMode] = useState<'default' | 'approved'>('default');
 
   useEffect(() => {
-    setBookingStatus(String(bookingRaw));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setMode('default');
   }, [record?.id]);
 
+  if (!record) return null;
+
+  // Prefer normalized, fall back to raw Airtable fields
+  const raw = prescreen || record;
+
+  const name =
+    getFirstNonEmpty(record, ['name', 'Name']) ||
+    getFirstNonEmpty(raw, ['name', 'Name']) ||
+    'Unnamed';
+
+  const email =
+    getFirstNonEmpty(record, ['email', 'Email']) ||
+    getFirstNonEmpty(raw, ['email', 'Email']) ||
+    '';
+
+  const phone =
+    getFirstNonEmpty(record, ['phone', 'Phone', 'mobile', 'Mobile']) ||
+    getFirstNonEmpty(raw, ['phone', 'Phone', 'mobile', 'Mobile']) ||
+    '';
+
+  const treatment =
+    getFirstNonEmpty(raw, ['interested_treatments', 'Interested Treatments', 'treatment_selected', 'Treatment']) ||
+    getFirstNonEmpty(record, ['treatment_selected', 'Treatment']) ||
+    '—';
+
+  const eligibilityUi = toUiEligibility(
+    getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ?? getFirstNonEmpty(record, ['eligibility', 'Eligibility'])
+  );
+
+  const bookingStatusRaw =
+    getFirstNonEmpty(raw, ['booking_status', 'Booking Status']) ??
+    getFirstNonEmpty(record, ['booking_status', 'Booking Status']);
+
+  const bookingStatus: 'Booked' | 'Pending' =
+    String(bookingStatusRaw || '').trim().toLowerCase() === 'booked' ? 'Booked' : 'Pending';
+
   const initials = name
-    ? String(name)
+    ? name
         .split(' ')
-        .filter(Boolean)
-        .map((n) => n[0])
+        .map((n: string) => n[0])
         .join('')
         .substring(0, 2)
         .toUpperCase()
     : '??';
 
-  const isBooked = String(bookingStatus).trim().toLowerCase() === 'booked';
-
   const toggleBooking = () => {
-    const next = isBooked ? 'Pending' : 'Booked';
-    setBookingStatus(next); // ✅ instant UI
-    onUpdateRecord?.(record.id, { booking_status: next }); // ✅ updates list badge instantly
+    if (!onUpdateRecord) return;
+    const next: 'Booked' | 'Pending' = bookingStatus === 'Booked' ? 'Pending' : 'Booked';
+    onUpdateRecord(record.id, { booking_status: next });
   };
+
+  // Pre-screen rows (add more keys later — this is the safe starter set)
+  const preScreenRows = useMemo(() => {
+    const rows = [
+      { label: 'Over 18?', value: getFirstNonEmpty(raw, ['age_verified', 'Age Verified']) },
+      { label: 'Pregnancy/Nursing?', value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging']) },
+      { label: 'Allergies?', value: getFirstNonEmpty(raw, ['allergies_yesno', 'Allergies']) },
+      { label: 'Antibiotics (14d)?', value: getFirstNonEmpty(raw, ['Antibiotics_14d', 'antibiotics_14d']) },
+    ];
+
+    // filter out totally empty ones so it doesn’t look broken
+    return rows.filter(r => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
+  }, [raw]);
+
+  const aiSummary = getFirstNonEmpty(raw, ['Pre-screen Summary (AI)', 'ai_summary', 'AI Summary']);
 
   return (
     <>
@@ -91,67 +120,129 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
               <X size={20} />
             </button>
 
-            <div className="flex gap-5 items-start mb-6">
+            <div className="flex gap-5 items-start mb-5">
               <div className="h-14 w-14 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 text-lg font-medium tracking-wide shrink-0">
                 {initials}
               </div>
 
               <div className="flex-1 pt-1 min-w-0 pr-8">
-                <h2 className="text-2xl font-serif font-medium text-slate-900 leading-none mb-3 truncate">{name}</h2>
+                <h2 className="text-2xl font-serif font-medium text-slate-900 leading-none mb-3 truncate">
+                  {name}
+                </h2>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 text-slate-500 min-w-0">
-                      <Mail size={14} className="shrink-0" />
-                      {email ? (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-2 min-w-0">
+                    {email && (
+                      <div className="flex items-center gap-2 text-slate-500 min-w-0">
+                        <Mail size={14} className="shrink-0" />
                         <a
                           href={`mailto:${email}`}
                           className="text-xs font-medium hover:text-slate-800 transition-colors truncate"
                         >
                           {email}
                         </a>
-                      ) : (
-                        <span className="text-xs font-medium text-slate-400">No email</span>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border shrink-0 ${badgeClasses(
-                        eligibilityUi
-                      )}`}
-                    >
-                      {eligibilityUi}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-slate-500 min-w-0">
-                    <Phone size={14} className="shrink-0" />
-                    {phone ? (
-                      <a href={`tel:${phone}`} className="text-xs font-medium hover:text-slate-800 transition-colors truncate">
-                        {phone}
-                      </a>
-                    ) : (
-                      <span className="text-xs font-medium text-slate-400">No phone</span>
+                    {phone && (
+                      <div className="flex items-center gap-2 text-slate-500 min-w-0">
+                        <Phone size={14} className="shrink-0" />
+                        <a
+                          href={`tel:${phone}`}
+                          className="text-xs font-medium hover:text-slate-800 transition-colors truncate"
+                        >
+                          {phone}
+                        </a>
+                      </div>
                     )}
                   </div>
+
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border shrink-0 ${eligBadgeClasses(
+                      eligibilityUi
+                    )}`}
+                  >
+                    {eligibilityUi}
+                  </span>
                 </div>
               </div>
             </div>
+
+            {/* Requested treatment */}
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                Requested treatment
+              </p>
+              <p className="text-sm font-medium text-slate-900 truncate">• {String(treatment)}</p>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-6 pb-6 space-y-4 overflow-auto">
+            {/* Pre-screen results */}
+            <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+              <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                  Pre-screen results
+                </p>
+              </div>
+
+              {preScreenRows.length === 0 ? (
+                <div className="p-4 text-sm text-slate-500 flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-amber-500" />
+                  No pre-screen answers found on this record yet.
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {preScreenRows.map((r) => (
+                    <div key={r.label} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <span className="text-sm text-slate-700">{r.label}</span>
+                      <span className="text-sm font-medium text-slate-900 text-right truncate max-w-[55%]">
+                        {String(r.value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* AI summary */}
+            {aiSummary && (
+              <div className="bg-white rounded-2xl border border-slate-100 p-4">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                  AI summary
+                </p>
+                <p className="text-sm text-slate-700 whitespace-pre-line">{String(aiSummary)}</p>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
-          <div className="p-6 pt-4 border-t border-slate-50 bg-white space-y-3 pb-safe-area-bottom">
+          <div className="p-6 pt-4 border-t border-slate-50 bg-white space-y-3">
             <button
-              className={`w-full py-3.5 rounded-xl font-medium text-sm flex items-center justify-center gap-2 border transition-colors ${
-                isBooked
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
-                  : 'bg-[#1a1a1a] text-white border-[#1a1a1a] hover:bg-black'
+              className={`w-full py-3.5 rounded-xl font-medium text-sm transition-colors shadow-lg flex items-center justify-center gap-2 ${
+                bookingStatus === 'Booked'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 shadow-none'
+                  : 'bg-[#1a1a1a] text-white hover:bg-black'
               }`}
               onClick={toggleBooking}
             >
-              {isBooked ? <Check size={18} /> : <CalendarCheck size={18} />}
-              {isBooked ? 'Booked (click to set Pending)' : 'Mark as Booked'}
+              {bookingStatus === 'Booked' ? (
+                <>
+                  <Check size={18} />
+                  Booked (click to set Pending)
+                </>
+              ) : (
+                <>
+                  <CalendarCheck size={18} />
+                  Mark as Booked
+                </>
+              )}
             </button>
+
+            {mode === 'approved' && (
+              <p className="text-xs text-slate-500 text-center">Updating eligibility…</p>
+            )}
           </div>
         </div>
       </div>
