@@ -36,15 +36,31 @@ function eligBadgeClasses(label: string) {
 const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateRecord }) => {
   const [mode, setMode] = useState<'default' | 'approved'>('default');
 
+  // ✅ Local booking status so button updates instantly (even if parent state lags)
+  const [bookingStatus, setBookingStatus] = useState<'Booked' | 'Pending'>('Pending');
+
   useEffect(() => {
     setMode('default');
   }, [record?.id]);
 
   if (!record) return null;
 
-  // Prefer normalized, fall back to raw Airtable fields
+  // Prefer raw Airtable fields for details
   const raw = prescreen || record;
 
+  // Keep local booking status synced with incoming record
+  useEffect(() => {
+    const bookingStatusRaw =
+      getFirstNonEmpty(raw, ['booking_status', 'Booking Status']) ??
+      getFirstNonEmpty(record, ['booking_status', 'Booking Status']);
+
+    const next: 'Booked' | 'Pending' =
+      String(bookingStatusRaw || '').trim().toLowerCase() === 'booked' ? 'Booked' : 'Pending';
+
+    setBookingStatus(next);
+  }, [record?.id, record?.booking_status, raw?.booking_status]);
+
+  // Prefer normalized, fall back to raw
   const name =
     getFirstNonEmpty(record, ['name', 'Name']) ||
     getFirstNonEmpty(raw, ['name', 'Name']) ||
@@ -66,15 +82,9 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     '—';
 
   const eligibilityUi = toUiEligibility(
-    getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ?? getFirstNonEmpty(record, ['eligibility', 'Eligibility'])
+    getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ??
+      getFirstNonEmpty(record, ['eligibility', 'Eligibility'])
   );
-
-  const bookingStatusRaw =
-    getFirstNonEmpty(raw, ['booking_status', 'Booking Status']) ??
-    getFirstNonEmpty(record, ['booking_status', 'Booking Status']);
-
-  const bookingStatus: 'Booked' | 'Pending' =
-    String(bookingStatusRaw || '').trim().toLowerCase() === 'booked' ? 'Booked' : 'Pending';
 
   const initials = name
     ? name
@@ -88,20 +98,27 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
   const toggleBooking = () => {
     if (!onUpdateRecord) return;
     const next: 'Booked' | 'Pending' = bookingStatus === 'Booked' ? 'Pending' : 'Booked';
+
+    // ✅ instant visual change
+    setBookingStatus(next);
+
+    // ✅ propagate up to update table + persist to Airtable
     onUpdateRecord(record.id, { booking_status: next });
   };
 
-  // Pre-screen rows (add more keys later — this is the safe starter set)
+  // Pre-screen rows (safe starter set)
   const preScreenRows = useMemo(() => {
     const rows = [
       { label: 'Over 18?', value: getFirstNonEmpty(raw, ['age_verified', 'Age Verified']) },
-      { label: 'Pregnancy/Nursing?', value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging']) },
+      {
+        label: 'Pregnancy/Nursing?',
+        value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging']),
+      },
       { label: 'Allergies?', value: getFirstNonEmpty(raw, ['allergies_yesno', 'Allergies']) },
       { label: 'Antibiotics (14d)?', value: getFirstNonEmpty(raw, ['Antibiotics_14d', 'antibiotics_14d']) },
     ];
 
-    // filter out totally empty ones so it doesn’t look broken
-    return rows.filter(r => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
+    return rows.filter((r) => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
   }, [raw]);
 
   const aiSummary = getFirstNonEmpty(raw, ['Pre-screen Summary (AI)', 'ai_summary', 'AI Summary']);
