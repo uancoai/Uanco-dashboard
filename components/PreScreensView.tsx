@@ -25,12 +25,7 @@ function parseDateMaybe(v: any) {
 
 function formatShortDate(d: Date | null) {
   if (!d) return '';
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
 // Airtable → UI label
@@ -39,15 +34,24 @@ function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
   if (s === 'pass') return 'SAFE';
   if (s === 'review') return 'REVIEW';
   if (s === 'fail') return 'UNSUITABLE';
-
-  // Sometimes Airtable stores already-formatted values
   if (s === 'safe') return 'SAFE';
   if (s === 'unsuitable') return 'UNSUITABLE';
   return raw ? (String(raw).toUpperCase() as any) : '—';
 }
 
-// Creates a "normalized" record so DrillDownPanel always has what it expects,
-// while still keeping original Airtable fields available (we attach `__raw`).
+function badgeClasses(label: string) {
+  const s = String(label || '').toLowerCase();
+  if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+  if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
+  return 'bg-rose-50 text-rose-700 border-rose-100';
+}
+
+function bookingBadgeClasses(status: 'Booked' | 'Pending') {
+  if (status === 'Booked') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+  return 'bg-slate-50 text-slate-700 border-slate-200';
+}
+
+// Creates a "normalized" record so DrillDownPanel always has what it expects
 function normalizeForPanel(r: any) {
   const name = getFirstNonEmpty(r, ['name', 'Name']) || 'Unnamed';
   const email = getFirstNonEmpty(r, ['email', 'Email']) || '';
@@ -58,9 +62,8 @@ function normalizeForPanel(r: any) {
   const eligibilityRaw = getFirstNonEmpty(r, ['eligibility', 'Eligibility']);
   const eligibilityUi = toUiEligibility(eligibilityRaw);
 
-  // Booking status (defaults to Pending)
-  const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booking', 'Booked']);
-  const bookingStatus =
+  const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
+  const bookingStatus: 'Booked' | 'Pending' =
     String(bookingRaw || '').trim().toLowerCase() === 'booked' ? 'Booked' : 'Pending';
 
   const ts =
@@ -80,24 +83,11 @@ function normalizeForPanel(r: any) {
     email,
     phone,
     treatment_selected: treatment,
-    eligibility: eligibilityUi, // what the UI shows
-    booking_status: bookingStatus, // what the UI shows
+    eligibility: eligibilityUi,
+    booking_status: bookingStatus,
     __raw: r,
     __ts: ts,
   };
-}
-
-function badgeClasses(label: string) {
-  const s = String(label || '').toLowerCase();
-  if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-  if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
-  return 'bg-rose-50 text-rose-700 border-rose-100';
-}
-
-function bookedBadgeClasses(label: string) {
-  const s = String(label || '').toLowerCase();
-  if (s === 'booked') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-  return 'bg-slate-50 text-slate-600 border-slate-100';
 }
 
 const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord }) => {
@@ -122,6 +112,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
+
     let list = [...normalized];
 
     // Tab filter
@@ -148,6 +139,12 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
     return list;
   }, [normalized, tab, q]);
+
+  const toggleBooking = (r: any) => {
+    if (!onUpdateRecord) return;
+    const next: 'Booked' | 'Pending' = r.booking_status === 'Booked' ? 'Pending' : 'Booked';
+    onUpdateRecord(r.id, { booking_status: next });
+  };
 
   return (
     <div className="space-y-6">
@@ -216,21 +213,18 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
         </div>
       </div>
 
-      {/* Table */}
+      {/* List */}
       <div className="bg-white rounded-3xl border shadow-soft overflow-hidden">
-        <div className="px-6 py-5 border-b bg-white/60">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Client Records</p>
-            <p className="text-[11px] text-uanco-400">{filtered.length} shown</p>
+        {/* “Table header” */}
+        <div className="px-6 py-4 border-b bg-white/60">
+          <div className="grid grid-cols-12 gap-4 items-center">
+            <div className="col-span-5 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Clients</div>
+            <div className="col-span-3 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Treatment</div>
+            <div className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Eligibility</div>
+            <div className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-uanco-400 text-right">
+              Booked
+            </div>
           </div>
-        </div>
-
-        {/* Header row */}
-        <div className="hidden sm:grid grid-cols-12 gap-4 px-6 py-3 border-b bg-uanco-50">
-          <div className="col-span-4 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Client</div>
-          <div className="col-span-4 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Treatment</div>
-          <div className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Eligibility</div>
-          <div className="col-span-2 text-[10px] font-bold uppercase tracking-widest text-uanco-400 text-right">Booked</div>
         </div>
 
         {filtered.length === 0 ? (
@@ -239,6 +233,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           <div className="divide-y">
             {filtered.map((r) => {
               const d = parseDateMaybe(r.__ts);
+
               return (
                 <button
                   key={r.id}
@@ -246,19 +241,20 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                   className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                 >
                   <div className="grid grid-cols-12 gap-4 items-center">
-                    {/* Client */}
-                    <div className="col-span-12 sm:col-span-4 min-w-0">
+                    {/* Clients */}
+                    <div className="col-span-5 min-w-0">
                       <p className="text-sm font-medium truncate">{r.name}</p>
-                      <p className="text-[12px] text-uanco-500 truncate sm:hidden">{r.email}</p>
+                      <p className="text-[12px] text-uanco-500 truncate">{r.email || '—'}</p>
+                      <p className="text-[11px] text-uanco-400 whitespace-nowrap mt-1">{formatShortDate(d)}</p>
                     </div>
 
                     {/* Treatment */}
-                    <div className="col-span-12 sm:col-span-4 min-w-0">
-                      <p className="text-[12px] text-uanco-500 truncate">{String(r.treatment_selected || '—')}</p>
+                    <div className="col-span-3 min-w-0">
+                      <p className="text-[12px] text-uanco-600 truncate">{String(r.treatment_selected || '—')}</p>
                     </div>
 
                     {/* Eligibility */}
-                    <div className="col-span-6 sm:col-span-2">
+                    <div className="col-span-2">
                       <span
                         className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
                           r.eligibility
@@ -269,20 +265,22 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                     </div>
 
                     {/* Booked */}
-                    <div className="col-span-6 sm:col-span-2 text-right">
-                      <span
-                        className={`inline-flex text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border ${bookedBadgeClasses(
+                    <div className="col-span-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleBooking(r);
+                        }}
+                        className={`inline-flex items-center text-[10px] font-bold uppercase px-2 py-1 rounded-full border transition-colors hover:opacity-90 ${bookingBadgeClasses(
                           r.booking_status
                         )}`}
+                        title="Click to toggle Booked / Pending"
                       >
-                        {r.booking_status || 'Pending'}
-                      </span>
+                        {r.booking_status === 'Booked' ? 'Booked' : 'Pending'}
+                      </button>
                     </div>
-                  </div>
-
-                  {/* Right-side timestamp on larger screens */}
-                  <div className="hidden sm:block text-right mt-1 text-[11px] text-uanco-400">
-                    {formatShortDate(d)}
                   </div>
                 </button>
               );
