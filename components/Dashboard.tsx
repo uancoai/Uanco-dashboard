@@ -14,7 +14,7 @@ type Props = {
   questions?: any[];
   metrics?: any;
 
-  // OPTIONAL (recommended): if you pass this from App.tsx, booking toggle works from Overview drilldown too
+  // If passed from App.tsx, booking toggle works from Overview drilldown too
   onUpdateRecord?: (id: string, updates: any) => void;
 };
 
@@ -51,7 +51,12 @@ function parseDateMaybe(v: any) {
 
 function formatShortDate(d: Date | null) {
   if (!d) return '';
-  return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 const Dashboard: React.FC<Props> = ({
@@ -66,7 +71,6 @@ const Dashboard: React.FC<Props> = ({
   const [selected, setSelected] = useState<any | null>(null);
 
   const totals = useMemo(() => {
-    // Prefer computed metrics from backend, but fall back safely
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
     const tempFails = Number(metrics?.tempFails ?? 0);
@@ -76,7 +80,6 @@ const Dashboard: React.FC<Props> = ({
     const review = tempFails;
     const dropoffs = Math.round(total * (dropOffRate / 100));
 
-    // Booked count from prescreens
     const booked = preScreens.filter((r: any) => {
       const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
       return String(raw || '').trim().toLowerCase() === 'booked';
@@ -95,14 +98,12 @@ const Dashboard: React.FC<Props> = ({
       'submitted_at',
       'Submitted At',
     ];
-    const copy = [...preScreens];
 
+    const copy = [...preScreens];
     copy.sort((a, b) => {
       const da = parseDateMaybe(getFirstNonEmpty(a, dateKeys));
       const db = parseDateMaybe(getFirstNonEmpty(b, dateKeys));
-      const ta = da ? da.getTime() : 0;
-      const tb = db ? db.getTime() : 0;
-      return tb - ta;
+      return (db?.getTime() || 0) - (da?.getTime() || 0);
     });
 
     return copy.slice(0, 8);
@@ -118,39 +119,16 @@ const Dashboard: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* KPI row (includes Booked + tooltips) */}
+      {/* KPI row (clean layout, no pills, no info icons) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KPICard
-          title="Total Prescreens"
-          value={totals.total}
-          variant="dark"
-          info="Clients who have completed a digital pre-screen for this clinic within the selected time period."
-        />
-        <KPICard
-          title="Safe to Book"
-          value={totals.safeToBook}
-          trend="Healthy"
-          info="Clients who passed the pre-screen and are suitable to proceed, subject to practitioner review."
-        />
-        <KPICard
-          title="Manual Review"
-          value={totals.review}
-          subValue="Attention"
-          info="Clients whose pre-screen responses require practitioner assessment before a booking decision."
-        />
-        <KPICard
-          title="Drop-offs"
-          value={totals.dropoffs}
-          info="Clients who started but did not complete the pre-screen process."
-        />
-        <KPICard
-          title="Booked"
-          value={totals.booked}
-          info="Clients who have been confirmed and marked as booked by practitioner."
-        />
+        <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
+        <KPICard title="Safe to Book" value={totals.safeToBook} />
+        <KPICard title="Manual Review" value={totals.review} />
+        <KPICard title="Drop-offs" value={totals.dropoffs} />
+        <KPICard title="Booked" value={totals.booked} />
       </div>
 
-      {/* Main grid: Recent Activity + Insight panel */}
+      {/* Main grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent Activity */}
         <div className="lg:col-span-2 bg-white rounded-3xl border shadow-soft overflow-hidden">
