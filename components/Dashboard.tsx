@@ -119,7 +119,7 @@ const Dashboard: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* KPI row (clean layout, no pills, no info icons) */}
+      {/* KPI row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
         <KPICard title="Safe to Book" value={totals.safeToBook} />
@@ -206,30 +206,30 @@ const Dashboard: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Insight panel */}
+        {/* Clinic signals */}
         <div className="bg-white rounded-3xl border shadow-soft p-6">
-          <h3 className="text-lg font-medium">AI Insight</h3>
-          <p className="text-[11px] text-uanco-400 mt-1">Quick snapshot from recent activity</p>
+          <h3 className="text-sm font-bold uppercase tracking-widest text-uanco-400">Clinic signals</h3>
+          <p className="text-[12px] text-uanco-500 mt-2">A quick snapshot from current logged data.</p>
 
           <div className="mt-6 space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Questions captured</span>
-              <span className="text-sm font-medium">{questions.length}</span>
+              <span className="text-sm font-medium text-uanco-900">{questions.length}</span>
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Safe rate</span>
-              <span className="text-sm font-medium">{Number(metrics?.passRate ?? 0)}%</span>
+              <span className="text-sm font-medium text-uanco-900">{Number(metrics?.passRate ?? 0)}%</span>
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Drop-off rate</span>
-              <span className="text-sm font-medium">{Number(metrics?.dropOffRate ?? 0)}%</span>
+              <span className="text-sm font-medium text-uanco-900">{Number(metrics?.dropOffRate ?? 0)}%</span>
             </div>
           </div>
 
           <div className="mt-6 text-[12px] text-uanco-500">
-            Click a client to view the full pre-screen + AI summary.
+            Click a client to view their full pre-screen summary.
           </div>
         </div>
       </div>
