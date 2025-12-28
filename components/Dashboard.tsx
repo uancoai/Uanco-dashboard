@@ -47,17 +47,24 @@ function getFirstNonEmpty(obj: any, keys: string[]) {
   return null;
 }
 
-// ✅ NEW: review override logic (review flag wins unless review marked complete)
+function isTruthy(v: any) {
+  const s = String(v ?? '').trim().toLowerCase();
+  return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+// ✅ REVIEW override logic:
+// - If review is complete, do NOT force review.
+// - If eligibility is review, force review.
+// - If any "flag/review/contra/medical flag" field is truthy, force review.
 function isManualReview(rec: any) {
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
-  if (reviewComplete === true || toLower(reviewComplete) === 'true') return false;
+  if (isTruthy(reviewComplete)) return false;
 
-  // If eligibility itself is review
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
   if (e === 'review') return true;
 
-  // If record has an explicit flag field (Airtable / Make can name this differently)
-  const flag = getFirstNonEmpty(rec, [
+  // common explicit flags
+  const explicitFlag = getFirstNonEmpty(rec, [
     'Flagged for Review',
     'flagged_for_review',
     'manual_review',
@@ -67,9 +74,25 @@ function isManualReview(rec: any) {
     'flagged',
     'Flagged',
   ]);
+  if (isTruthy(explicitFlag)) return true;
 
-  const f = toLower(flag);
-  return f === 'true' || f === 'yes' || f === '1';
+  // catch-all: any key that looks like a review/flag field
+  for (const [key, value] of Object.entries(rec || {})) {
+    const k = String(key).toLowerCase();
+
+    // ignore completion fields
+    if (k.includes('review complete') || k.includes('review_complete') || k === 'reviewcomplete') continue;
+
+    const looksLikeReviewFlag =
+      k.includes('flag') ||
+      (k.includes('review') && (k.includes('flag') || k.includes('required') || k.includes('needed') || k.includes('manual'))) ||
+      k.includes('contra') ||
+      k.includes('medical flag');
+
+    if (looksLikeReviewFlag && isTruthy(value)) return true;
+  }
+
+  return false;
 }
 
 function parseDateMaybe(v: any) {
@@ -189,7 +212,7 @@ const Dashboard: React.FC<Props> = ({
                     'Treatment',
                   ]) || '—';
 
-                // ✅ CHANGE: review flag overrides SAFE
+                // ✅ REVIEW override wins
                 const eligUi = isManualReview(r)
                   ? 'REVIEW'
                   : toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
@@ -261,9 +284,7 @@ const Dashboard: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="mt-6 text-[12px] text-uanco-500">
-            Click a client to view their full pre-screen summary.
-          </div>
+          <div className="mt-6 text-[12px] text-uanco-500">Click a client to view their full pre-screen summary.</div>
         </div>
       </div>
 
