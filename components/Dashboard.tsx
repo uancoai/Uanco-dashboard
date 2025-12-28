@@ -52,18 +52,16 @@ function isTruthy(v: any) {
   return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
 }
 
-// ✅ REVIEW override logic:
-// - If review is complete, do NOT force review.
-// - If eligibility is review, force review.
-// - If any "flag/review/contra/medical flag" field is truthy, force review.
+// ✅ Review override logic: flagged-for-review wins unless review marked complete
 function isManualReview(rec: any) {
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
   if (isTruthy(reviewComplete)) return false;
 
+  // If eligibility itself is review
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
   if (e === 'review') return true;
 
-  // common explicit flags
+  // Explicit known flag fields
   const explicitFlag = getFirstNonEmpty(rec, [
     'Flagged for Review',
     'flagged_for_review',
@@ -76,11 +74,9 @@ function isManualReview(rec: any) {
   ]);
   if (isTruthy(explicitFlag)) return true;
 
-  // catch-all: any key that looks like a review/flag field
+  // Best-effort fallback: catch “flag-ish” keys in Airtable records
   for (const [key, value] of Object.entries(rec || {})) {
     const k = String(key).toLowerCase();
-
-    // ignore completion fields
     if (k.includes('review complete') || k.includes('review_complete') || k === 'reviewcomplete') continue;
 
     const looksLikeReviewFlag =
@@ -124,20 +120,34 @@ const Dashboard: React.FC<Props> = ({
 
   const totals = useMemo(() => {
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
-    const passRate = Number(metrics?.passRate ?? 0);
-    const tempFails = Number(metrics?.tempFails ?? 0);
-    const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
-    const safeToBook = Math.round(total * (passRate / 100));
-    const review = tempFails;
-    const dropoffs = Math.round(total * (dropOffRate / 100));
+    // ✅ Count from records so it matches UI logic (not backend estimates)
+    const manualReviewCount = preScreens.filter((r: any) => isManualReview(r)).length;
+
+    const safeToBookCount = preScreens.filter((r: any) => {
+      const e = toLower(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
+      const safe = e === 'pass' || e === 'safe';
+      return safe && !isManualReview(r);
+    }).length;
+
+    // Drop-offs: keep using backend if present (that’s usually computed safely server-side)
+    const dropOffRate = Number(metrics?.dropOffRate ?? 0);
+    const dropoffs = metrics?.dropoffs !== undefined
+      ? Number(metrics?.dropoffs)
+      : Math.round(total * (dropOffRate / 100));
 
     const booked = preScreens.filter((r: any) => {
       const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
       return toLower(raw) === 'booked';
     }).length;
 
-    return { total, safeToBook, review, dropoffs, booked };
+    return {
+      total,
+      safeToBook: safeToBookCount,
+      review: manualReviewCount,
+      dropoffs,
+      booked,
+    };
   }, [metrics, preScreens]);
 
   const recent = useMemo(() => {
@@ -212,7 +222,7 @@ const Dashboard: React.FC<Props> = ({
                     'Treatment',
                   ]) || '—';
 
-                // ✅ REVIEW override wins
+                // ✅ REVIEW wins in UI unless review complete
                 const eligUi = isManualReview(r)
                   ? 'REVIEW'
                   : toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
@@ -284,7 +294,9 @@ const Dashboard: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="mt-6 text-[12px] text-uanco-500">Click a client to view their full pre-screen summary.</div>
+          <div className="mt-6 text-[12px] text-uanco-500">
+            Click a client to view their full pre-screen summary.
+          </div>
         </div>
       </div>
 
