@@ -10,10 +10,88 @@ type Props = {
 
 function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    const direct = obj?.[k];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+
+    const nested = obj?.fields?.[k];
+    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return nested;
   }
   return null;
+}
+
+function toLower(v: any) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+function isTruthy(v: any) {
+  const s = toLower(v);
+  return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+function asTextList(v: any): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+  const s = String(v).trim();
+  if (!s) return [];
+  // supports "A, B, C" and also newline-separated values
+  return s.split(/,|\n/).map((x) => x.trim()).filter(Boolean);
+}
+
+function buildReviewReasons(prescreen: any): string[] {
+  const reasons: string[] = [];
+
+  // 1) Explicit flag/reason fields (common Airtable/Make patterns)
+  const contraindications = getFirstNonEmpty(prescreen, [
+    'contraindications',
+    'Contraindications',
+    'medical_flags',
+    'Medical Flags',
+    'flags',
+    'Flags',
+    'flag_reasons',
+    'Flag Reasons',
+    'Fail Reasons',
+    'fail_reasons',
+  ]);
+  asTextList(contraindications).forEach((r) => reasons.push(r));
+
+  // 2) Allergies (Yes/No) + the detail (e.g. Shellfish)
+  const allergies = getFirstNonEmpty(prescreen, [
+    'allergies_yesno',
+    'allergies',
+    'Allergies',
+  ]);
+  const allergyDetail = getFirstNonEmpty(prescreen, [
+    'allergy_detail',
+    'allergy_details',
+    'Allergy Detail',
+    'Allergy Details',
+    'Allergies (detail)',
+    'Allergy',
+  ]);
+
+  const a = toLower(allergies);
+  if (a === 'yes' || a === 'true') {
+    if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
+    else reasons.push('Allergy: Yes');
+  } else if (allergies && a !== 'no' && a !== 'false') {
+    // sometimes the allergies field contains the actual allergy text
+    reasons.push(`Allergy: ${String(allergies).trim()}`);
+  }
+
+  // 3) Medications / conditions (often review triggers)
+  const meds = getFirstNonEmpty(prescreen, ['medications', 'Medications']);
+  asTextList(meds).forEach((m) => reasons.push(`Medication: ${m}`));
+
+  const conditions = getFirstNonEmpty(prescreen, [
+    'conditions',
+    'Medical Conditions',
+    'medical_conditions',
+  ]);
+  asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
+
+  // De-dupe and return
+  return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
 
 function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
@@ -122,6 +200,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
   }, [raw]);
 
   const aiSummary = getFirstNonEmpty(raw, ['Pre-screen Summary (AI)', 'ai_summary', 'AI Summary']);
+  const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
+  const showReviewSignals = eligibilityUi === 'REVIEW' || reviewReasons.length > 0;
 
   return (
     <>
@@ -196,6 +276,57 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
           {/* Body */}
           <div className="px-6 pb-6 space-y-4 overflow-auto">
+            {/* Review signals (why this is in review) */}
+            {showReviewSignals && (
+              <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                <div className="px-4 py-3 bg-white/60 border-b border-slate-100 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Review signals</p>
+                    <p className="text-xs text-slate-500 mt-0.5">What needs practitioner confirmation</p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {phone && (
+                      <a
+                        href={`tel:${String(phone).replace(/\s+/g, '')}`}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-slate-100 text-slate-700 hover:bg-slate-50"
+                      >
+                        <Phone size={14} /> Call
+                      </a>
+                    )}
+                    {email && (
+                      <a
+                        href={`mailto:${email}`}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-[#1a1a1a] text-white hover:bg-black"
+                      >
+                        <Mail size={14} /> Email
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {reviewReasons.length === 0 ? (
+                  <div className="p-4 text-sm text-slate-600 flex items-start gap-3">
+                    <AlertTriangle size={16} className="text-amber-500 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-slate-800">This record is marked for review.</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        No structured reason fields were found yet. Next step is mapping the exact Airtable fields so this always shows details like “Allergy: Shellfish”.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {reviewReasons.map((r, idx) => (
+                      <div key={idx} className="px-4 py-3 flex items-start gap-3">
+                        <span className="mt-2 h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="text-sm text-slate-800">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {/* Pre-screen results */}
             <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
               <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
