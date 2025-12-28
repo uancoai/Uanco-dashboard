@@ -17,6 +17,15 @@ function getFirstNonEmpty(obj: any, keys: string[]) {
   return null;
 }
 
+function toLower(v: any) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+function isTruthy(v: any) {
+  const s = toLower(v);
+  return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
 function parseDateMaybe(v: any) {
   if (!v) return null;
   const d = new Date(v);
@@ -30,7 +39,7 @@ function formatShortDate(d: Date | null) {
 
 // Airtable → UI label
 function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  const s = String(raw || '').trim().toLowerCase();
+  const s = toLower(raw);
   if (s === 'pass') return 'SAFE';
   if (s === 'review') return 'REVIEW';
   if (s === 'fail') return 'UNSUITABLE';
@@ -40,7 +49,7 @@ function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
 }
 
 function badgeClasses(label: string) {
-  const s = String(label || '').toLowerCase();
+  const s = toLower(label);
   if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
   if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
   return 'bg-rose-50 text-rose-700 border-rose-100';
@@ -49,6 +58,30 @@ function badgeClasses(label: string) {
 function bookingBadgeClasses(status: 'Booked' | 'Pending') {
   if (status === 'Booked') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
   return 'bg-slate-50 text-slate-700 border-slate-200';
+}
+
+// ✅ Review override logic: flagged-for-review wins unless review marked complete
+function isManualReview(rec: any) {
+  const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
+  if (isTruthy(reviewComplete)) return false;
+
+  // If eligibility itself is review
+  const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
+  if (e === 'review') return true;
+
+  // Explicit known flag fields
+  const explicitFlag = getFirstNonEmpty(rec, [
+    'Flagged for Review',
+    'flagged_for_review',
+    'manual_review',
+    'Manual Review',
+    'review_flag',
+    'Review Flag',
+    'flagged',
+    'Flagged',
+  ]);
+
+  return isTruthy(explicitFlag);
 }
 
 // Creates a "normalized" record so DrillDownPanel always has what it expects
@@ -60,11 +93,11 @@ function normalizeForPanel(r: any) {
     getFirstNonEmpty(r, ['treatment_selected', 'Treatment', 'interested_treatments', 'Interested Treatments']) || '';
 
   const eligibilityRaw = getFirstNonEmpty(r, ['eligibility', 'Eligibility']);
-  const eligibilityUi = toUiEligibility(eligibilityRaw);
+  const eligibilityUi = isManualReview(r) ? 'REVIEW' : toUiEligibility(eligibilityRaw);
 
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
   const bookingStatus: 'Booked' | 'Pending' =
-    String(bookingRaw || '').trim().toLowerCase() === 'booked' ? 'Booked' : 'Pending';
+    toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
 
   const ts =
     getFirstNonEmpty(r, [
@@ -83,7 +116,7 @@ function normalizeForPanel(r: any) {
     email,
     phone,
     treatment_selected: treatment,
-    eligibility: eligibilityUi,
+    eligibility: eligibilityUi, // ✅ effective UI eligibility
     booking_status: bookingStatus,
     __raw: r,
     __ts: ts,
@@ -101,31 +134,32 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     let safe = 0,
       review = 0,
       unsuitable = 0;
+
     for (const r of normalized) {
-      const e = String(r?.eligibility || '').toLowerCase();
+      const e = toLower(r?.eligibility);
       if (e === 'safe') safe++;
       else if (e === 'review') review++;
       else if (e === 'unsuitable') unsuitable++;
     }
+
     return { all: normalized.length, safe, review, unsuitable };
   }, [normalized]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-
     let list = [...normalized];
 
-    // Tab filter
+    // Tab filter (uses effective eligibility)
     if (tab !== 'all') {
-      list = list.filter((r) => String(r?.eligibility || '').toLowerCase() === tab);
+      list = list.filter((r) => toLower(r?.eligibility) === tab);
     }
 
     // Search filter
     if (needle) {
       list = list.filter((r) => {
-        const name = String(r?.name || '').toLowerCase();
-        const email = String(r?.email || '').toLowerCase();
-        const treatment = String(r?.treatment_selected || '').toLowerCase();
+        const name = toLower(r?.name);
+        const email = toLower(r?.email);
+        const treatment = toLower(r?.treatment_selected);
         return name.includes(needle) || email.includes(needle) || treatment.includes(needle);
       });
     }
