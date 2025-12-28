@@ -33,14 +33,12 @@ function asTextList(v: any): string[] {
   if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
   const s = String(v).trim();
   if (!s) return [];
-  // supports "A, B, C" and also newline-separated values
   return s.split(/,|\n/).map((x) => x.trim()).filter(Boolean);
 }
 
 function buildReviewReasons(prescreen: any): string[] {
   const reasons: string[] = [];
 
-  // 1) Explicit flag/reason fields (common Airtable/Make patterns)
   const contraindications = getFirstNonEmpty(prescreen, [
     'contraindications',
     'Contraindications',
@@ -55,12 +53,7 @@ function buildReviewReasons(prescreen: any): string[] {
   ]);
   asTextList(contraindications).forEach((r) => reasons.push(r));
 
-  // 2) Allergies (Yes/No) + the detail (e.g. Shellfish)
-  const allergies = getFirstNonEmpty(prescreen, [
-    'allergies_yesno',
-    'allergies',
-    'Allergies',
-  ]);
+  const allergies = getFirstNonEmpty(prescreen, ['allergies_yesno', 'allergies', 'Allergies']);
   const allergyDetail = getFirstNonEmpty(prescreen, [
     'allergy_detail',
     'allergy_details',
@@ -75,22 +68,15 @@ function buildReviewReasons(prescreen: any): string[] {
     if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
     else reasons.push('Allergy: Yes');
   } else if (allergies && a !== 'no' && a !== 'false') {
-    // sometimes the allergies field contains the actual allergy text
     reasons.push(`Allergy: ${String(allergies).trim()}`);
   }
 
-  // 3) Medications / conditions (often review triggers)
   const meds = getFirstNonEmpty(prescreen, ['medications', 'Medications']);
   asTextList(meds).forEach((m) => reasons.push(`Medication: ${m}`));
 
-  const conditions = getFirstNonEmpty(prescreen, [
-    'conditions',
-    'Medical Conditions',
-    'medical_conditions',
-  ]);
+  const conditions = getFirstNonEmpty(prescreen, ['conditions', 'Medical Conditions', 'medical_conditions']);
   asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
 
-  // De-dupe and return
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
 
@@ -111,28 +97,60 @@ function eligBadgeClasses(label: string) {
   return 'bg-rose-50 text-rose-700 border-rose-100';
 }
 
+// ✅ REVIEW locking rule (same spirit as Dashboard/PreScreens):
+// if flagged-for-review AND NOT review_complete -> show REVIEW
+function isManualReview(rec: any, localReviewComplete?: boolean) {
+  if (localReviewComplete === true) return false;
+
+  const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
+  if (isTruthy(reviewComplete)) return false;
+
+  const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
+  if (e === 'review') return true;
+
+  const explicitFlag = getFirstNonEmpty(rec, [
+    'Manual Review Flag', // ✅ your Airtable field (from your screenshot)
+    'manual_review_flag',
+    'Flagged for Review',
+    'flagged_for_review',
+    'manual_review',
+    'Manual Review',
+    'review_flag',
+    'Review Flag',
+    'flagged',
+    'Flagged',
+  ]);
+
+  return isTruthy(explicitFlag);
+}
+
 const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateRecord }) => {
   const [mode, setMode] = useState<'default' | 'approved'>('default');
 
-  // ✅ Local booking status so button updates instantly (even if parent state lags)
   const [bookingStatus, setBookingStatus] = useState<'Booked' | 'Pending'>('Pending');
+
   const [reviewCompleteChecked, setReviewCompleteChecked] = useState(false);
   const [confirmReviewOpen, setConfirmReviewOpen] = useState(false);
   const [savingReview, setSavingReview] = useState(false);
+
+  // ✅ local “truth” so UI flips immediately after confirm
+  const [localReviewComplete, setLocalReviewComplete] = useState(false);
 
   useEffect(() => {
     setMode('default');
     setReviewCompleteChecked(false);
     setConfirmReviewOpen(false);
     setSavingReview(false);
-  }, [record?.id]);
+
+    const raw = prescreen || record;
+    const existing = getFirstNonEmpty(raw, ['Review Complete', 'review_complete', 'reviewComplete']);
+    setLocalReviewComplete(isTruthy(existing));
+  }, [record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!record) return null;
 
-  // Prefer raw Airtable fields for details
   const raw = prescreen || record;
 
-  // Keep local booking status synced with incoming record
   useEffect(() => {
     const bookingStatusRaw =
       getFirstNonEmpty(raw, ['booking_status', 'Booking Status']) ??
@@ -144,7 +162,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     setBookingStatus(next);
   }, [record?.id, record?.booking_status, raw?.booking_status]);
 
-  // Prefer normalized, fall back to raw
   const name =
     getFirstNonEmpty(record, ['name', 'Name']) ||
     getFirstNonEmpty(raw, ['name', 'Name']) ||
@@ -165,10 +182,16 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     getFirstNonEmpty(record, ['treatment_selected', 'Treatment']) ||
     '—';
 
-  const eligibilityUi = toUiEligibility(
-    getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ??
-      getFirstNonEmpty(record, ['eligibility', 'Eligibility'])
-  );
+  // ✅ Effective eligibility: locked REVIEW unless review complete
+  const eligibilityUi: 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' = useMemo(() => {
+    if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
+
+    const rawElig =
+      getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ??
+      getFirstNonEmpty(record, ['eligibility', 'Eligibility']);
+
+    return toUiEligibility(rawElig);
+  }, [raw, record, localReviewComplete]);
 
   const initials = name
     ? name
@@ -182,28 +205,58 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
   const toggleBooking = () => {
     if (!onUpdateRecord) return;
     const next: 'Booked' | 'Pending' = bookingStatus === 'Booked' ? 'Pending' : 'Booked';
-
-    // ✅ instant visual change
     setBookingStatus(next);
-
-    // ✅ propagate up to update table + persist to Airtable
     onUpdateRecord(record.id, { booking_status: next });
   };
 
   const markReviewComplete = async () => {
     if (!onUpdateRecord) return;
+
     try {
       setSavingReview(true);
-      // Persist to Airtable via the existing update endpoint
-      await onUpdateRecord(record.id, { review_complete: true, reviewComplete: true, 'Review Complete': true });
+
+      const currentElig = toLower(getFirstNonEmpty(raw, ['eligibility', 'Eligibility']));
+      const updates: any = {
+        // ✅ mark complete
+        review_complete: true,
+        reviewComplete: true,
+        'Review Complete': true,
+
+        // ✅ clear the flags so overrides stop everywhere
+        'Manual Review Flag': false,
+        manual_review_flag: false,
+        'Flagged for Review': false,
+        flagged_for_review: false,
+        manual_review: false,
+        'Manual Review': false,
+        review_flag: false,
+        'Review Flag': false,
+        flagged: false,
+        'Flagged': false,
+      };
+
+      // ✅ if eligibility itself was literally "review", flip it to "pass"
+      if (currentElig === 'review') {
+        updates.eligibility = 'pass';
+        updates.Eligibility = 'pass';
+      }
+
+      // optimistic local UI flip
+      setLocalReviewComplete(true);
+
+      await onUpdateRecord(record.id, updates);
+
       setConfirmReviewOpen(false);
       setReviewCompleteChecked(false);
+    } catch (e) {
+      // rollback UI if save failed
+      setLocalReviewComplete(false);
+      console.error('[markReviewComplete] failed', e);
     } finally {
       setSavingReview(false);
     }
   };
 
-  // Pre-screen rows (safe starter set)
   const preScreenRows = useMemo(() => {
     const rows = [
       { label: 'Over 18?', value: getFirstNonEmpty(raw, ['age_verified', 'Age Verified']) },
@@ -235,11 +288,13 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   const aiSummary = getFirstNonEmpty(raw, ['Pre-screen Summary (AI)', 'ai_summary', 'AI Summary']);
   const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
+
   const showReviewSignals = eligibilityUi === 'REVIEW' || reviewReasons.length > 0;
 
   return (
     <>
       <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60]" onClick={onClose} />
+
       <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 pointer-events-none">
         <div className="bg-white w-full max-w-md shadow-2xl rounded-3xl overflow-hidden max-h-[85vh] flex flex-col pointer-events-auto ring-1 ring-slate-900/5">
           {/* Header */}
@@ -299,7 +354,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
               </div>
             </div>
 
-            {/* Requested treatment */}
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
                 Requested treatment
@@ -310,7 +364,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
           {/* Body */}
           <div className="px-6 pb-6 space-y-4 overflow-auto">
-            {/* Review signals (why this is in review) */}
             {showReviewSignals && (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 bg-white/60 border-b border-slate-100 flex items-center justify-between gap-3">
@@ -345,7 +398,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     <div>
                       <p className="font-medium text-slate-800">This record is marked for review.</p>
                       <p className="text-xs text-slate-500 mt-1">
-                        No structured reason fields were found yet. Next step is mapping the exact Airtable fields so this always shows details like “Allergy: Shellfish”.
+                        No structured reason fields were found yet. Once your Airtable fields are mapped, this will always show specifics like “Allergy: Shellfish”.
                       </p>
                     </div>
                   </div>
@@ -359,6 +412,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     ))}
                   </div>
                 )}
+
                 <div className="px-4 py-4 border-t border-slate-100 bg-white">
                   <label className="flex items-start gap-3 cursor-pointer select-none">
                     <input
@@ -390,6 +444,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </div>
               </div>
             )}
+
             {/* Pre-screen results */}
             <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
               <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
@@ -451,23 +506,19 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
               )}
             </button>
 
-            {mode === 'approved' && (
-              <p className="text-xs text-slate-500 text-center">Updating eligibility…</p>
-            )}
+            {mode === 'approved' && <p className="text-xs text-slate-500 text-center">Updating eligibility…</p>}
           </div>
         </div>
+
         {confirmReviewOpen && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 pointer-events-auto">
-            <div
-              className="absolute inset-0 bg-slate-900/40 pointer-events-auto"
-              onClick={() => setConfirmReviewOpen(false)}
-            />
-            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden pointer-events-auto">
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-slate-900/40" onClick={() => setConfirmReviewOpen(false)} />
+            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
               <div className="p-6">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Confirm action</p>
                 <h3 className="text-lg font-medium text-slate-900 mt-2">Mark this review as complete?</h3>
                 <p className="text-sm text-slate-600 mt-2">
-                  This will remove the “REVIEW” status and show the case as cleared.
+                  This will clear the review flag and update the dashboard immediately.
                 </p>
               </div>
               <div className="p-4 border-t border-slate-100 bg-white flex gap-2">
