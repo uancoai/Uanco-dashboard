@@ -8,13 +8,11 @@ type Props = {
   clinicName?: string;
   onNavigate: (view: string) => void;
 
-  // live dashboard payload pieces (from /.netlify/functions/dashboard)
   preScreens?: any[];
   dropOffs?: any[];
   questions?: any[];
   metrics?: any;
 
-  // If passed from App.tsx, booking toggle works from Overview drilldown too
   onUpdateRecord?: (id: string, updates: any) => void;
 };
 
@@ -40,11 +38,9 @@ function isManualReview(rec: any) {
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
   if (isTruthy(reviewComplete)) return false;
 
-  // If eligibility itself is review
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
   if (e === 'review') return true;
 
-  // Only explicit/known fields (NO guessing)
   const explicitFlag = getFirstNonEmpty(rec, [
     'Flagged for Review',
     'flagged_for_review',
@@ -60,7 +56,6 @@ function isManualReview(rec: any) {
 }
 
 function toUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  // ✅ Review override wins
   if (isManualReview(rec)) return 'REVIEW';
 
   const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
@@ -113,18 +108,23 @@ const Dashboard: React.FC<Props> = ({
   const [selected, setSelected] = useState<any | null>(null);
 
   const totals = useMemo(() => {
-    const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
-    const dropOffRate = Number(metrics?.dropOffRate ?? 0);
+    // ✅ Single source of truth: what the UI is actually rendering
+    const total = preScreens.length;
 
-    // ✅ Count from records so UI stays consistent with overrides
     const reviewCount = preScreens.filter((r: any) => toUiEligibility(r) === 'REVIEW').length;
     const unsafeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'UNSUITABLE').length;
     const safeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'SAFE').length;
 
-    // Dropoffs: prefer backend metric if you have it; otherwise estimate
-    const dropoffs = Number.isFinite(dropOffRate) ? Math.round(total * (dropOffRate / 100)) : 0;
-
     const booked = preScreens.filter(isBooked).length;
+
+    // Dropoffs: prefer explicit count if backend provides it, else estimate from rate
+    const dropOffRate = Number(metrics?.dropOffRate ?? 0);
+    const dropoffs =
+      Number.isFinite(Number(metrics?.dropoffs ?? metrics?.dropOffs ?? metrics?.dropOffsCount))
+        ? Number(metrics?.dropoffs ?? metrics?.dropOffs ?? metrics?.dropOffsCount)
+        : Number.isFinite(dropOffRate)
+        ? Math.round(total * (dropOffRate / 100))
+        : 0;
 
     return {
       total,
@@ -156,6 +156,20 @@ const Dashboard: React.FC<Props> = ({
 
     return copy.slice(0, 8);
   }, [preScreens]);
+
+  const safeRateUi = useMemo(() => {
+    const total = preScreens.length;
+    if (!total) return 0;
+    const safeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'SAFE').length;
+    return Math.round((safeCount / total) * 100);
+  }, [preScreens]);
+
+  const dropOffRateUi = useMemo(() => {
+    const total = preScreens.length;
+    if (!total) return 0;
+    const dropoffs = Number(totals.dropoffs ?? 0);
+    return Math.round((dropoffs / total) * 100);
+  }, [preScreens, totals.dropoffs]);
 
   return (
     <div className="space-y-6">
@@ -268,12 +282,12 @@ const Dashboard: React.FC<Props> = ({
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Safe rate</span>
-              <span className="text-sm font-medium text-uanco-900">{Number(metrics?.passRate ?? 0)}%</span>
+              <span className="text-sm font-medium text-uanco-900">{safeRateUi}%</span>
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Drop-off rate</span>
-              <span className="text-sm font-medium text-uanco-900">{Number(metrics?.dropOffRate ?? 0)}%</span>
+              <span className="text-sm font-medium text-uanco-900">{dropOffRateUi}%</span>
             </div>
           </div>
 
