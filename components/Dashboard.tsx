@@ -176,6 +176,9 @@ const Dashboard: React.FC<Props> = ({
       {/* Header */}
       <div className="flex justify-between items-end">
         <h2 className="text-3xl font-serif">Overview</h2>
+        <div className="text-[10px] font-bold uppercase tracking-widest text-rose-500">
+          UI BUILD: DASHBOARD_V5
+        </div>
         <span className="text-xs font-bold text-uanco-400 uppercase tracking-widest">
           {clinicName || clinicId || 'Clinic'}
         </span>
