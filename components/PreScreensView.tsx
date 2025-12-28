@@ -9,17 +9,6 @@ type Props = {
 
 type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
 
-function getFirstNonEmpty(obj: any, keys: string[]) {
-  for (const k of keys) {
-    const direct = obj?.[k];
-    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
-
-    const nested = obj?.fields?.[k];
-    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return nested;
-  }
-  return null;
-}
-
 function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
 }
@@ -27,6 +16,19 @@ function toLower(v: any) {
 function isTruthy(v: any) {
   const s = toLower(v);
   return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+function getFirstNonEmpty(obj: any, keys: string[]) {
+  for (const k of keys) {
+    // direct
+    const direct = obj?.[k];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+
+    // airtable-style: { fields: { ... } }
+    const nested = obj?.fields?.[k];
+    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return nested;
+  }
+  return null;
 }
 
 function parseDateMaybe(v: any) {
@@ -41,13 +43,11 @@ function formatShortDate(d: Date | null) {
 }
 
 // Airtable → UI label
-function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
+function baseEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
   const s = toLower(raw);
-  if (s === 'pass') return 'SAFE';
+  if (s === 'pass' || s === 'safe') return 'SAFE';
   if (s === 'review') return 'REVIEW';
-  if (s === 'fail') return 'UNSUITABLE';
-  if (s === 'safe') return 'SAFE';
-  if (s === 'unsuitable') return 'UNSUITABLE';
+  if (s === 'fail' || s === 'unsuitable') return 'UNSUITABLE';
   return raw ? (String(raw).toUpperCase() as any) : '—';
 }
 
@@ -72,8 +72,9 @@ function isManualReview(rec: any) {
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
   if (e === 'review') return true;
 
-  // Explicit known flag fields
+  // ✅ include your Airtable field + common alternates
   const explicitFlag = getFirstNonEmpty(rec, [
+    'manual_review_flag', // ✅ YOUR AIRTABLE FIELD
     'Flagged for Review',
     'flagged_for_review',
     'manual_review',
@@ -87,20 +88,25 @@ function isManualReview(rec: any) {
   return isTruthy(explicitFlag);
 }
 
+function effectiveUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
+  if (isManualReview(rec)) return 'REVIEW';
+  const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
+  return baseEligibility(raw);
+}
+
 // Creates a "normalized" record so DrillDownPanel always has what it expects
 function normalizeForPanel(r: any) {
   const name = getFirstNonEmpty(r, ['name', 'Name']) || 'Unnamed';
   const email = getFirstNonEmpty(r, ['email', 'Email']) || '';
   const phone = getFirstNonEmpty(r, ['phone', 'Phone', 'mobile', 'Mobile']) || '';
+
   const treatment =
     getFirstNonEmpty(r, ['treatment_selected', 'Treatment', 'interested_treatments', 'Interested Treatments']) || '';
 
-  const eligibilityRaw = getFirstNonEmpty(r, ['eligibility', 'Eligibility']);
-  const eligibilityUi = isManualReview(r) ? 'REVIEW' : toUiEligibility(eligibilityRaw);
+  const eligibilityUi = effectiveUiEligibility(r);
 
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
-  const bookingStatus: 'Booked' | 'Pending' =
-    toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
+  const bookingStatus: 'Booked' | 'Pending' = toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
 
   const ts =
     getFirstNonEmpty(r, [
@@ -185,17 +191,19 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-end justify-between">
         <div>
           <h2 className="text-3xl font-serif">Pre-Screens</h2>
           <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
         </div>
+
+        <div className="text-[10px] font-bold uppercase tracking-widest text-rose-500">
+          UI BUILD: PRESCREENS_V6
+        </div>
       </div>
 
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Tabs */}
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setTab('all')}
@@ -207,6 +215,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           >
             All ({counts.all})
           </button>
+
           <button
             onClick={() => setTab('safe')}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
@@ -217,6 +226,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           >
             Safe ({counts.safe})
           </button>
+
           <button
             onClick={() => setTab('review')}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
@@ -227,6 +237,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           >
             Review ({counts.review})
           </button>
+
           <button
             onClick={() => setTab('unsuitable')}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
@@ -239,7 +250,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           </button>
         </div>
 
-        {/* Search */}
         <div className="w-full sm:w-[340px]">
           <input
             value={q}
@@ -252,7 +262,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
       {/* List */}
       <div className="bg-white rounded-3xl border shadow-soft overflow-hidden">
-        {/* “Table header” */}
         <div className="px-6 py-4 border-b bg-white/60">
           <div className="grid grid-cols-12 gap-4 items-center">
             <div className="col-span-5 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Clients</div>
@@ -278,19 +287,16 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                   className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                 >
                   <div className="grid grid-cols-12 gap-4 items-center">
-                    {/* Clients */}
                     <div className="col-span-5 min-w-0">
                       <p className="text-sm font-medium truncate">{r.name}</p>
                       <p className="text-[12px] text-uanco-500 truncate">{r.email || '—'}</p>
                       <p className="text-[11px] text-uanco-400 whitespace-nowrap mt-1">{formatShortDate(d)}</p>
                     </div>
 
-                    {/* Treatment */}
                     <div className="col-span-3 min-w-0">
                       <p className="text-[12px] text-uanco-600 truncate">{String(r.treatment_selected || '—')}</p>
                     </div>
 
-                    {/* Eligibility */}
                     <div className="col-span-2">
                       <span
                         className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
@@ -301,7 +307,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                       </span>
                     </div>
 
-                    {/* Booked */}
                     <div className="col-span-2 flex justify-end">
                       <button
                         type="button"
@@ -326,7 +331,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
         )}
       </div>
 
-      {/* Drilldown */}
       {selected && (
         <DrillDownPanel
           record={selected}
