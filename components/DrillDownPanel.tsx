@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, CalendarCheck, Check, Mail, Phone, AlertTriangle } from 'lucide-react';
+import { X, CalendarCheck, Check, Mail, Phone, AlertTriangle, ChevronRight } from 'lucide-react';
 
 type Props = {
   record: any;        // normalized (name/email/eligibility/booking_status)
@@ -116,9 +116,15 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   // ✅ Local booking status so button updates instantly (even if parent state lags)
   const [bookingStatus, setBookingStatus] = useState<'Booked' | 'Pending'>('Pending');
+  const [reviewCompleteChecked, setReviewCompleteChecked] = useState(false);
+  const [confirmReviewOpen, setConfirmReviewOpen] = useState(false);
+  const [savingReview, setSavingReview] = useState(false);
 
   useEffect(() => {
     setMode('default');
+    setReviewCompleteChecked(false);
+    setConfirmReviewOpen(false);
+    setSavingReview(false);
   }, [record?.id]);
 
   if (!record) return null;
@@ -184,15 +190,43 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     onUpdateRecord(record.id, { booking_status: next });
   };
 
+  const markReviewComplete = async () => {
+    if (!onUpdateRecord) return;
+    try {
+      setSavingReview(true);
+      // Persist to Airtable via the existing update endpoint
+      await onUpdateRecord(record.id, { review_complete: true, reviewComplete: true, 'Review Complete': true });
+      setConfirmReviewOpen(false);
+      setReviewCompleteChecked(false);
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
   // Pre-screen rows (safe starter set)
   const preScreenRows = useMemo(() => {
     const rows = [
       { label: 'Over 18?', value: getFirstNonEmpty(raw, ['age_verified', 'Age Verified']) },
       {
         label: 'Pregnancy/Nursing?',
-        value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging']),
+        value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging', 'Pregnant/Breastfeeding']),
       },
-      { label: 'Allergies?', value: getFirstNonEmpty(raw, ['allergies_yesno', 'Allergies']) },
+      { label: 'Allergies?', value: getFirstNonEmpty(raw, ['allergies_yesno', 'Allergies', 'allergies']) },
+      {
+        label: 'Allergy details',
+        value: getFirstNonEmpty(raw, [
+          'allergy_detail',
+          'allergy_details',
+          'Allergy Detail',
+          'Allergy Details',
+          'Allergies (detail)',
+        ]),
+      },
+      { label: 'Medications', value: getFirstNonEmpty(raw, ['medications', 'Medications']) },
+      {
+        label: 'Medical conditions',
+        value: getFirstNonEmpty(raw, ['conditions', 'Medical Conditions', 'medical_conditions']),
+      },
       { label: 'Antibiotics (14d)?', value: getFirstNonEmpty(raw, ['Antibiotics_14d', 'antibiotics_14d']) },
     ];
 
@@ -325,6 +359,35 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     ))}
                   </div>
                 )}
+                <div className="px-4 py-4 border-t border-slate-100 bg-white">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                      checked={reviewCompleteChecked}
+                      onChange={(e) => setReviewCompleteChecked(e.target.checked)}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-900">Mark review as complete</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Only tick this if the client has been reviewed and it’s safe to proceed.
+                      </p>
+                    </div>
+                  </label>
+
+                  <button
+                    type="button"
+                    disabled={!reviewCompleteChecked || savingReview}
+                    onClick={() => setConfirmReviewOpen(true)}
+                    className={`mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-colors border ${
+                      !reviewCompleteChecked || savingReview
+                        ? 'bg-slate-50 text-slate-400 border-slate-100'
+                        : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    {savingReview ? 'Saving…' : 'Confirm review complete'} <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             )}
             {/* Pre-screen results */}
@@ -393,6 +456,37 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
             )}
           </div>
         </div>
+        {confirmReviewOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6">
+            <div className="absolute inset-0 bg-slate-900/40" onClick={() => setConfirmReviewOpen(false)} />
+            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+              <div className="p-6">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Confirm action</p>
+                <h3 className="text-lg font-medium text-slate-900 mt-2">Mark this review as complete?</h3>
+                <p className="text-sm text-slate-600 mt-2">
+                  This will remove the “REVIEW” status and show the case as cleared.
+                </p>
+              </div>
+              <div className="p-4 border-t border-slate-100 bg-white flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmReviewOpen(false)}
+                  className="flex-1 px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest border border-slate-200 text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={markReviewComplete}
+                  disabled={savingReview}
+                  className="flex-1 px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-60"
+                >
+                  {savingReview ? 'Saving…' : 'Yes, complete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
