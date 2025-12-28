@@ -22,8 +22,11 @@ function toLower(v: any) {
 
 function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    const direct = obj?.[k];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+
+    const nested = obj?.fields?.[k];
+    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return nested;
   }
   return null;
 }
@@ -42,6 +45,8 @@ function isManualReview(rec: any) {
   if (e === 'review') return true;
 
   const explicitFlag = getFirstNonEmpty(rec, [
+    'manual_review_flag',
+    'Manual Review Flag',
     'Flagged for Review',
     'flagged_for_review',
     'manual_review',
