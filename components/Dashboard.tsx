@@ -43,6 +43,45 @@ function getFirstNonEmpty(obj: any, keys: string[]) {
   return null;
 }
 
+function toLower(v: any) {
+  return String(v || '').trim().toLowerCase();
+}
+
+function isManualReview(rec: any) {
+  // 1) If eligibility itself is review, easy win
+  const elig = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
+  if (elig === 'review') return true;
+
+  // 2) Otherwise try common “flag” fields (you can add your exact Airtable field names here)
+  const raw = getFirstNonEmpty(rec, [
+    'flagged_for_review',
+    'Flagged for review',
+    'flagged',
+    'Flagged',
+    'manual_review',
+    'Manual Review',
+    'screening_status',
+    'Screening Status',
+    'status',
+    'Status',
+  ]);
+
+  const s = toLower(raw);
+
+  // Checkbox field in Airtable often arrives as true/false
+  if (raw === true) return true;
+  if (s === 'true') return true;
+
+  return (
+    s === 'review' ||
+    s === 'manual review' ||
+    s === 'flagged' ||
+    s === 'flagged for review' ||
+    s === 'needs review' ||
+    s === 'attention'
+  );
+}
+
 function parseDateMaybe(v: any) {
   if (!v) return null;
   const d = new Date(v);
@@ -73,12 +112,17 @@ const Dashboard: React.FC<Props> = ({
   const totals = useMemo(() => {
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
-    const tempFails = Number(metrics?.tempFails ?? 0);
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
     const safeToBook = Math.round(total * (passRate / 100));
-    const review = tempFails;
     const dropoffs = Math.round(total * (dropOffRate / 100));
+
+    // ✅ Manual Review: use backend if it’s a real number, otherwise fallback to counting records
+    const backendTempFails = metrics?.tempFails;
+    const review =
+      typeof backendTempFails === 'number' && Number.isFinite(backendTempFails)
+        ? backendTempFails
+        : preScreens.filter(isManualReview).length;
 
     const booked = preScreens.filter((r: any) => {
       const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
