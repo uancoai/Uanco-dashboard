@@ -22,23 +22,6 @@ function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
 }
 
-function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  const s = toLower(raw);
-  if (s === 'pass') return 'SAFE';
-  if (s === 'review') return 'REVIEW';
-  if (s === 'fail') return 'UNSUITABLE';
-  if (s === 'safe') return 'SAFE';
-  if (s === 'unsuitable') return 'UNSUITABLE';
-  return raw ? (String(raw).toUpperCase() as any) : '—';
-}
-
-function badgeClasses(label: string) {
-  const s = toLower(label);
-  if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-  if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
-  return 'bg-rose-50 text-rose-700 border-rose-100';
-}
-
 function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
     const v = obj?.[k];
@@ -61,7 +44,7 @@ function isManualReview(rec: any) {
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
   if (e === 'review') return true;
 
-  // Explicit known flag fields
+  // Only explicit/known fields (NO guessing)
   const explicitFlag = getFirstNonEmpty(rec, [
     'Flagged for Review',
     'flagged_for_review',
@@ -72,23 +55,29 @@ function isManualReview(rec: any) {
     'flagged',
     'Flagged',
   ]);
-  if (isTruthy(explicitFlag)) return true;
 
-  // Best-effort fallback: catch “flag-ish” keys in Airtable records
-  for (const [key, value] of Object.entries(rec || {})) {
-    const k = String(key).toLowerCase();
-    if (k.includes('review complete') || k.includes('review_complete') || k === 'reviewcomplete') continue;
+  return isTruthy(explicitFlag);
+}
 
-    const looksLikeReviewFlag =
-      k.includes('flag') ||
-      (k.includes('review') && (k.includes('flag') || k.includes('required') || k.includes('needed') || k.includes('manual'))) ||
-      k.includes('contra') ||
-      k.includes('medical flag');
+function toUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
+  // ✅ Review override wins
+  if (isManualReview(rec)) return 'REVIEW';
 
-    if (looksLikeReviewFlag && isTruthy(value)) return true;
-  }
+  const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
+  const s = toLower(raw);
 
-  return false;
+  if (s === 'pass' || s === 'safe') return 'SAFE';
+  if (s === 'fail' || s === 'unsuitable') return 'UNSUITABLE';
+  if (s === 'review') return 'REVIEW';
+
+  return raw ? (String(raw).toUpperCase() as any) : '—';
+}
+
+function badgeClasses(label: string) {
+  const s = toLower(label);
+  if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+  if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
+  return 'bg-rose-50 text-rose-700 border-rose-100';
 }
 
 function parseDateMaybe(v: any) {
@@ -107,6 +96,11 @@ function formatShortDate(d: Date | null) {
   });
 }
 
+function isBooked(rec: any) {
+  const raw = getFirstNonEmpty(rec, ['booking_status', 'Booking Status', 'booked', 'Booked']);
+  return toLower(raw) === 'booked';
+}
+
 const Dashboard: React.FC<Props> = ({
   clinicId,
   clinicName,
@@ -120,33 +114,25 @@ const Dashboard: React.FC<Props> = ({
 
   const totals = useMemo(() => {
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
-
-    // ✅ Count from records so it matches UI logic (not backend estimates)
-    const manualReviewCount = preScreens.filter((r: any) => isManualReview(r)).length;
-
-    const safeToBookCount = preScreens.filter((r: any) => {
-      const e = toLower(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
-      const safe = e === 'pass' || e === 'safe';
-      return safe && !isManualReview(r);
-    }).length;
-
-    // Drop-offs: keep using backend if present (that’s usually computed safely server-side)
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
-    const dropoffs = metrics?.dropoffs !== undefined
-      ? Number(metrics?.dropoffs)
-      : Math.round(total * (dropOffRate / 100));
 
-    const booked = preScreens.filter((r: any) => {
-      const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
-      return toLower(raw) === 'booked';
-    }).length;
+    // ✅ Count from records so UI stays consistent with overrides
+    const reviewCount = preScreens.filter((r: any) => toUiEligibility(r) === 'REVIEW').length;
+    const unsafeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'UNSUITABLE').length;
+    const safeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'SAFE').length;
+
+    // Dropoffs: prefer backend metric if you have it; otherwise estimate
+    const dropoffs = Number.isFinite(dropOffRate) ? Math.round(total * (dropOffRate / 100)) : 0;
+
+    const booked = preScreens.filter(isBooked).length;
 
     return {
       total,
-      safeToBook: safeToBookCount,
-      review: manualReviewCount,
+      safeToBook: safeCount,
+      review: reviewCount,
       dropoffs,
       booked,
+      unsafe: unsafeCount,
     };
   }, [metrics, preScreens]);
 
@@ -222,10 +208,7 @@ const Dashboard: React.FC<Props> = ({
                     'Treatment',
                   ]) || '—';
 
-                // ✅ REVIEW wins in UI unless review complete
-                const eligUi = isManualReview(r)
-                  ? 'REVIEW'
-                  : toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
+                const eligUi = toUiEligibility(r);
 
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
