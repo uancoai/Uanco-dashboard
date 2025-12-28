@@ -11,8 +11,11 @@ type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
 
 function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    const direct = obj?.[k];
+    if (direct !== undefined && direct !== null && String(direct).trim() !== '') return direct;
+
+    const nested = obj?.fields?.[k];
+    if (nested !== undefined && nested !== null && String(nested).trim() !== '') return nested;
   }
   return null;
 }
