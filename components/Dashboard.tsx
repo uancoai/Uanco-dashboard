@@ -18,8 +18,12 @@ type Props = {
   onUpdateRecord?: (id: string, updates: any) => void;
 };
 
+function toLower(v: any) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
 function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  const s = String(raw || '').trim().toLowerCase();
+  const s = toLower(raw);
   if (s === 'pass') return 'SAFE';
   if (s === 'review') return 'REVIEW';
   if (s === 'fail') return 'UNSUITABLE';
@@ -29,7 +33,7 @@ function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
 }
 
 function badgeClasses(label: string) {
-  const s = String(label || '').toLowerCase();
+  const s = toLower(label);
   if (s === 'safe') return 'bg-emerald-50 text-emerald-700 border-emerald-100';
   if (s === 'review') return 'bg-amber-50 text-amber-700 border-amber-100';
   return 'bg-rose-50 text-rose-700 border-rose-100';
@@ -43,43 +47,29 @@ function getFirstNonEmpty(obj: any, keys: string[]) {
   return null;
 }
 
-function toLower(v: any) {
-  return String(v || '').trim().toLowerCase();
-}
-
+// ✅ NEW: review override logic (review flag wins unless review marked complete)
 function isManualReview(rec: any) {
-  // 1) If eligibility itself is review, easy win
-  const elig = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
-  if (elig === 'review') return true;
+  const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
+  if (reviewComplete === true || toLower(reviewComplete) === 'true') return false;
 
-  // 2) Otherwise try common “flag” fields (you can add your exact Airtable field names here)
-  const raw = getFirstNonEmpty(rec, [
+  // If eligibility itself is review
+  const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
+  if (e === 'review') return true;
+
+  // If record has an explicit flag field (Airtable / Make can name this differently)
+  const flag = getFirstNonEmpty(rec, [
+    'Flagged for Review',
     'flagged_for_review',
-    'Flagged for review',
-    'flagged',
-    'Flagged',
     'manual_review',
     'Manual Review',
-    'screening_status',
-    'Screening Status',
-    'status',
-    'Status',
+    'review_flag',
+    'Review Flag',
+    'flagged',
+    'Flagged',
   ]);
 
-  const s = toLower(raw);
-
-  // Checkbox field in Airtable often arrives as true/false
-  if (raw === true) return true;
-  if (s === 'true') return true;
-
-  return (
-    s === 'review' ||
-    s === 'manual review' ||
-    s === 'flagged' ||
-    s === 'flagged for review' ||
-    s === 'needs review' ||
-    s === 'attention'
-  );
+  const f = toLower(flag);
+  return f === 'true' || f === 'yes' || f === '1';
 }
 
 function parseDateMaybe(v: any) {
@@ -112,21 +102,16 @@ const Dashboard: React.FC<Props> = ({
   const totals = useMemo(() => {
     const total = Number(metrics?.totalPreScreens ?? preScreens.length ?? 0);
     const passRate = Number(metrics?.passRate ?? 0);
+    const tempFails = Number(metrics?.tempFails ?? 0);
     const dropOffRate = Number(metrics?.dropOffRate ?? 0);
 
     const safeToBook = Math.round(total * (passRate / 100));
+    const review = tempFails;
     const dropoffs = Math.round(total * (dropOffRate / 100));
-
-    // ✅ Manual Review: use backend if it’s a real number, otherwise fallback to counting records
-    const backendTempFails = metrics?.tempFails;
-    const review =
-      typeof backendTempFails === 'number' && Number.isFinite(backendTempFails)
-        ? backendTempFails
-        : preScreens.filter(isManualReview).length;
 
     const booked = preScreens.filter((r: any) => {
       const raw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'booked', 'Booked']);
-      return String(raw || '').trim().toLowerCase() === 'booked';
+      return toLower(raw) === 'booked';
     }).length;
 
     return { total, safeToBook, review, dropoffs, booked };
@@ -204,7 +189,11 @@ const Dashboard: React.FC<Props> = ({
                     'Treatment',
                   ]) || '—';
 
-                const eligUi = toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
+                // ✅ CHANGE: review flag overrides SAFE
+                const eligUi = isManualReview(r)
+                  ? 'REVIEW'
+                  : toUiEligibility(getFirstNonEmpty(r, ['eligibility', 'Eligibility']));
+
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
                     'webhook_timestamp',
