@@ -511,7 +511,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         </div>
 
         {confirmReviewOpen && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6">
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 pointer-events-auto">
             <div className="absolute inset-0 bg-slate-900/40" onClick={() => setConfirmReviewOpen(false)} />
             <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
               <div className="p-6">
