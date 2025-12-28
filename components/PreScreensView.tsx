@@ -197,9 +197,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
         </div>
 
-        <div className="text-[10px] font-bold uppercase tracking-widest text-rose-500">
-          UI BUILD: PRESCREENS_V6
-        </div>
       </div>
 
       {/* Controls */}
