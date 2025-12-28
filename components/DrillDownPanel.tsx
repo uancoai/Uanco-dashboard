@@ -457,9 +457,12 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
           </div>
         </div>
         {confirmReviewOpen && (
-          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6">
-            <div className="absolute inset-0 bg-slate-900/40" onClick={() => setConfirmReviewOpen(false)} />
-            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 pointer-events-auto">
+            <div
+              className="absolute inset-0 bg-slate-900/40 pointer-events-auto"
+              onClick={() => setConfirmReviewOpen(false)}
+            />
+            <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden pointer-events-auto">
               <div className="p-6">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Confirm action</p>
                 <h3 className="text-lg font-medium text-slate-900 mt-2">Mark this review as complete?</h3>
