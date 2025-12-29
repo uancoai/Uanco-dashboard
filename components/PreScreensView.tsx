@@ -114,8 +114,10 @@ function normalizeForPanel(r: any) {
   // ✅ IMPORTANT: include Airtable record-level createdTime as first fallback
   const ts =
     getFirstNonEmpty(r, [
-      'createdTime', // ✅ Airtable record meta timestamp
-      'Created time', // ✅ Airtable field (if you have one)
+      'Auto Created Time', // ✅ NEW Airtable formula field: CREATED_TIME()
+      'auto_created_time', // optional snake_case fallback
+      'createdTime', // Airtable record meta timestamp (if present)
+      'Created time', // existing Airtable date field (if you ever populate it)
       'Created Time', // legacy
       'created_at',
       'Created',
@@ -282,7 +284,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
               return (
                 <button
-                  key={r.id}
+                  key={r.id || r.__raw?.id || `${r.email}-${r.__ts}`}
                   onClick={() => setSelected(r)}
                   className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                 >
