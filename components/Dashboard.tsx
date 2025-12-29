@@ -61,13 +61,16 @@ function isManualReview(rec: any) {
 }
 
 function toUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  if (isManualReview(rec)) return 'REVIEW';
-
   const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
   const s = toLower(raw);
 
-  if (s === 'pass' || s === 'safe') return 'SAFE';
+  // ✅ HARD-STOP: unsuitable/fail always wins (even if someone also flagged it for review)
   if (s === 'fail' || s === 'unsuitable') return 'UNSUITABLE';
+
+  // ✅ Review override next (unless review marked complete inside isManualReview)
+  if (isManualReview(rec)) return 'REVIEW';
+
+  if (s === 'pass' || s === 'safe') return 'SAFE';
   if (s === 'review') return 'REVIEW';
 
   return raw ? (String(raw).toUpperCase() as any) : '—';
