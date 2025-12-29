@@ -66,6 +66,41 @@ function normStep(v: any) {
   return s || "Unknown";
 }
 
+function isTruthy(v: any) {
+  const s = String(v ?? "").trim().toLowerCase();
+  return v === true || s === "true" || s === "yes" || s === "1" || s === "y";
+}
+
+// Mirrors the frontend override rules:
+// - manual_review_flag (or similar) forces REVIEW unless review_complete is true
+// - otherwise, eligibility decides
+function effectiveEligibility(rec: any): "pass" | "review" | "fail" | "" {
+  const reviewComplete =
+    rec["Review Complete"] ?? rec.review_complete ?? rec.reviewComplete ?? rec["review_complete"];
+  if (isTruthy(reviewComplete)) {
+    // If review is complete, fall back to eligibility
+    return normElig(rec.eligibility ?? rec["Eligibility"]);
+  }
+
+  const manualReviewFlag =
+    rec.manual_review_flag ??
+    rec["manual_review_flag"] ??
+    rec["Manual Review Flag"] ??
+    rec["manual review flag"] ??
+    rec["Flagged for Review"] ??
+    rec.flagged_for_review ??
+    rec["flagged_for_review"];
+
+  if (isTruthy(manualReviewFlag)) return "review";
+
+  return normElig(rec.eligibility ?? rec["Eligibility"]);
+}
+
+function safeDate(v: any): number {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
 /** ---------- Handler ---------- */
 export const handler: Handler = async (event) => {
   try {
@@ -115,6 +150,21 @@ export const handler: Handler = async (event) => {
     const tRes = await safeFetchTable(baseId, treatmentsTable, clinicId);
 
     const preScreens = preRes.records;
+    // Sort newest-first so UI "recent" is consistent even if the client doesn't sort
+    const preDateKeys = [
+      "Created time",
+      "Created Time",
+      "created_at",
+      "submitted_at",
+      "Submitted At",
+      "Webhook Timestamp",
+      "webhook_timestamp",
+    ];
+    preScreens.sort((a: any, b: any) => {
+      const va = preDateKeys.map((k) => a[k]).find((x) => x != null && String(x).trim() !== "");
+      const vb = preDateKeys.map((k) => b[k]).find((x) => x != null && String(x).trim() !== "");
+      return safeDate(vb) - safeDate(va);
+    });
     const dropOffs = dropRes.records;
     const questions = qRes.records;
     const treatments = tRes.records;
@@ -122,10 +172,17 @@ export const handler: Handler = async (event) => {
     // 6) Metrics (computed)
     const totalPreScreens = preScreens.length;
 
-    const eligibilityField = "eligibility";
-    const pass = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "pass").length;
-    const fail = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "fail").length;
-    const review = preScreens.filter((r: any) => normElig(r[eligibilityField]) === "review").length;
+    // Compute effective status using the same override logic as the UI
+    let pass = 0;
+    let fail = 0;
+    let review = 0;
+
+    for (const r of preScreens) {
+      const e = effectiveEligibility(r);
+      if (e === "pass") pass++;
+      else if (e === "fail") fail++;
+      else if (e === "review") review++;
+    }
 
     const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
     const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
@@ -134,7 +191,7 @@ export const handler: Handler = async (event) => {
     const failReasonFieldCandidates = ["fail_reason", "Fail Reason", "Reason", "reason"];
     const failReasonCounts = new Map<string, number>();
     for (const r of preScreens) {
-      if (normElig(r[eligibilityField]) !== "fail") continue;
+      if (effectiveEligibility(r) !== "fail") continue;
       const reason =
         failReasonFieldCandidates
           .map((f) => r[f])
@@ -215,7 +272,13 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        // Prevent stale dashboard data via CDN/function caching
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
       body: JSON.stringify({
         preScreens,
         dropOffs,
