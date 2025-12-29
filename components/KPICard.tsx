@@ -17,17 +17,25 @@ const KPICard: React.FC<Props> = ({ title, value, variant = "light", trend, subV
 
   return (
     <div
-      className={`relative rounded-3xl border shadow-soft p-6 ${
+      className={`relative rounded-3xl border shadow-soft p-6 flex flex-col min-h-[168px] ${
         isDark ? "bg-[#111] border-[#111] text-white" : "bg-white border-uanco-100 text-uanco-900"
       }`}
     >
       {/* Title */}
-      <p className={`text-[10px] font-bold uppercase tracking-[0.2em] ${isDark ? "text-white/60" : "text-uanco-300"}`}>
+      <p
+        className={`text-[10px] font-bold uppercase tracking-[0.2em] leading-snug min-h-[28px] ${
+          isDark ? "text-white/60" : "text-uanco-300"
+        }`}
+      >
         {title}
       </p>
 
       {/* Value */}
-      <div className={`mt-6 text-5xl font-light leading-none ${isDark ? "text-white" : "text-uanco-900"}`}>
+      <div
+        className={`mt-auto text-5xl font-light leading-none tabular-nums ${
+          isDark ? "text-white" : "text-uanco-900"
+        }`}
+      >
         {value}
       </div>
 
