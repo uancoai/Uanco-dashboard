@@ -13,11 +13,6 @@ function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
 }
 
-function isTruthy(v: any) {
-  const s = toLower(v);
-  return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
-}
-
 function getFirstNonEmpty(obj: any, keys: string[]) {
   for (const k of keys) {
     // direct
@@ -42,12 +37,26 @@ function formatShortDate(d: Date | null) {
   return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-// Airtable → UI label
-function baseEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
+/**
+ * Airtable schema truth (from your AI output):
+ * - eligibility: Pass | Fail | Manual Review
+ * - manual_review_flag: single select → "Yes" means review
+ * - hard stop: eligibility = Fail
+ */
+
+// Map Airtable eligibility → UI label
+function baseEligibilityFromAirtable(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
   const s = toLower(raw);
-  if (s === 'pass' || s === 'safe') return 'SAFE';
+
+  if (s === 'pass') return 'SAFE';
+  if (s === 'fail') return 'UNSUITABLE';
+  if (s === 'manual review') return 'REVIEW';
+
+  // support legacy values just in case older records exist
+  if (s === 'safe') return 'SAFE';
+  if (s === 'unsuitable') return 'UNSUITABLE';
   if (s === 'review') return 'REVIEW';
-  if (s === 'fail' || s === 'unsuitable') return 'UNSUITABLE';
+
   return raw ? (String(raw).toUpperCase() as any) : '—';
 }
 
@@ -63,50 +72,37 @@ function bookingBadgeClasses(status: 'Booked' | 'Pending') {
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
-// ✅ Review override logic: flagged-for-review wins unless review marked complete
+// Manual review override: manual_review_flag === "Yes" wins unless review is completed
 function isManualReview(rec: any) {
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
-  if (isTruthy(reviewComplete)) return false;
+  const reviewCompleteLower = toLower(reviewComplete);
+  if (reviewComplete === true || reviewCompleteLower === 'true' || reviewCompleteLower === 'yes') return false;
 
-  // If eligibility itself is review
-  const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
-  if (e === 'review') return true;
+  // If Airtable eligibility is Manual Review
+  const eligRaw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
+  if (toLower(eligRaw) === 'manual review') return true;
 
-  // ✅ include your Airtable field + common alternates
-  const explicitFlag = getFirstNonEmpty(rec, [
-    'manual_review_flag', // ✅ YOUR AIRTABLE FIELD
-    'Flagged for Review',
-    'flagged_for_review',
-    'manual_review',
-    'Manual Review',
-    'review_flag',
-    'Review Flag',
-    'flagged',
-    'Flagged',
-  ]);
-
-  return isTruthy(explicitFlag);
+  // Your confirmed field:
+  const flag = getFirstNonEmpty(rec, ['manual_review_flag']);
+  return toLower(flag) === 'yes';
 }
 
 function effectiveUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
-  const base = baseEligibility(raw);
+  // Hard stop: Fail is always UNSUITABLE (even if manual_review_flag is Yes)
+  const eligRaw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
+  if (toLower(eligRaw) === 'fail') return 'UNSUITABLE';
 
-  // ✅ HARD-STOP: if a record is UNSUITABLE/FAIL, it can never be downgraded to REVIEW/SAFE
-  if (base === 'UNSUITABLE') return 'UNSUITABLE';
-
-  // Review override only applies when NOT unsuitable
+  // Manual review override:
   if (isManualReview(rec)) return 'REVIEW';
 
-  return base;
+  return baseEligibilityFromAirtable(eligRaw);
 }
 
-// Creates a "normalized" record so DrillDownPanel always has what it expects
+// Normalize record so DrillDownPanel gets consistent fields
 function normalizeForPanel(r: any) {
   const name = getFirstNonEmpty(r, ['name', 'Name']) || 'Unnamed';
   const email = getFirstNonEmpty(r, ['email', 'Email']) || '';
   const phone = getFirstNonEmpty(r, ['phone', 'Phone', 'mobile', 'Mobile']) || '';
-
   const treatment =
     getFirstNonEmpty(r, ['treatment_selected', 'Treatment', 'interested_treatments', 'Interested Treatments']) || '';
 
@@ -115,15 +111,17 @@ function normalizeForPanel(r: any) {
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
   const bookingStatus: 'Booked' | 'Pending' = toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
 
+  // ✅ IMPORTANT: include exact Airtable field name "Created time"
   const ts =
     getFirstNonEmpty(r, [
-      'webhook_timestamp',
-      'Webhook Timestamp',
+      'Created time', // ✅ exact
+      'Created Time', // legacy
       'created_at',
       'Created',
-      'Created Time',
       'submitted_at',
       'Submitted At',
+      'webhook_timestamp',
+      'Webhook Timestamp',
     ]) || null;
 
   return {
@@ -132,7 +130,7 @@ function normalizeForPanel(r: any) {
     email,
     phone,
     treatment_selected: treatment,
-    eligibility: eligibilityUi, // ✅ effective UI eligibility
+    eligibility: eligibilityUi,
     booking_status: bookingStatus,
     __raw: r,
     __ts: ts,
@@ -165,12 +163,10 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     const needle = q.trim().toLowerCase();
     let list = [...normalized];
 
-    // Tab filter (uses effective eligibility)
     if (tab !== 'all') {
       list = list.filter((r) => toLower(r?.eligibility) === tab);
     }
 
-    // Search filter
     if (needle) {
       list = list.filter((r) => {
         const name = toLower(r?.name);
@@ -203,7 +199,6 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           <h2 className="text-3xl font-serif">Pre-Screens</h2>
           <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
         </div>
-
       </div>
 
       {/* Controls */}
