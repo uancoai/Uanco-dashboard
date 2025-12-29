@@ -42,7 +42,7 @@ function isManualReview(rec: any) {
   if (isTruthy(reviewComplete)) return false;
 
   const e = toLower(getFirstNonEmpty(rec, ['eligibility', 'Eligibility']));
-  if (e === 'review') return true;
+  if (e === 'manual review' || e === 'review') return true;
 
   const explicitFlag = getFirstNonEmpty(rec, [
     'manual_review_flag',
@@ -64,14 +64,14 @@ function toUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
   const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
   const s = toLower(raw);
 
-  // ✅ HARD-STOP: unsuitable/fail always wins (even if someone also flagged it for review)
+  // ✅ HARD-STOP: Fail/Unsuitable always wins (even if someone also flagged it for review)
   if (s === 'fail' || s === 'unsuitable') return 'UNSUITABLE';
 
   // ✅ Review override next (unless review marked complete inside isManualReview)
   if (isManualReview(rec)) return 'REVIEW';
 
   if (s === 'pass' || s === 'safe') return 'SAFE';
-  if (s === 'review') return 'REVIEW';
+  if (s === 'manual review' || s === 'review') return 'REVIEW';
 
   return raw ? (String(raw).toUpperCase() as any) : '—';
 }
@@ -146,13 +146,14 @@ const Dashboard: React.FC<Props> = ({
 
   const recent = useMemo(() => {
     const dateKeys = [
-      'webhook_timestamp',
-      'Webhook Timestamp',
+      'Created time', // ✅ Airtable exact field
+      'Created Time',
       'created_at',
       'Created',
-      'Created Time',
       'submitted_at',
       'Submitted At',
+      'webhook_timestamp',
+      'Webhook Timestamp',
     ];
 
     const copy = [...preScreens];
@@ -234,13 +235,14 @@ const Dashboard: React.FC<Props> = ({
 
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
-                    'webhook_timestamp',
-                    'Webhook Timestamp',
+                    'Created time',
+                    'Created Time',
                     'created_at',
                     'Created',
-                    'Created Time',
                     'submitted_at',
                     'Submitted At',
+                    'webhook_timestamp',
+                    'Webhook Timestamp',
                   ])
                 );
 
