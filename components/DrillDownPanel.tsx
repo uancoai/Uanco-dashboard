@@ -55,10 +55,14 @@ function buildReviewReasons(prescreen: any): string[] {
 
   const allergies = getFirstNonEmpty(prescreen, ['allergies_yesno', 'allergies', 'Allergies']);
   const allergyDetail = getFirstNonEmpty(prescreen, [
-    'allergy_detail',
+    'allergies_details',
+    'allergies_detail',
     'allergy_details',
-    'Allergy Detail',
+    'allergy_detail',
+    'Allergies Details',
+    'Allergies Detail',
     'Allergy Details',
+    'Allergy Detail',
     'Allergies (detail)',
     'Allergy',
   ]);
@@ -268,6 +272,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
       {
         label: 'Allergy details',
         value: getFirstNonEmpty(raw, [
+          'allergies_details',
+          'Allergies Details',
           'allergy_detail',
           'allergy_details',
           'Allergy Detail',
