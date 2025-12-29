@@ -146,7 +146,11 @@ const Dashboard: React.FC<Props> = ({
 
   const recent = useMemo(() => {
     const dateKeys = [
-      'Created time', // ✅ Airtable exact field
+      // Airtable record meta timestamp (best if present)
+      'createdTime',
+
+      // Airtable field variations (case differences matter)
+      'Created time',
       'Created Time',
       'created_at',
       'Created',
@@ -235,6 +239,7 @@ const Dashboard: React.FC<Props> = ({
 
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
+                    'createdTime',
                     'Created time',
                     'Created Time',
                     'created_at',
