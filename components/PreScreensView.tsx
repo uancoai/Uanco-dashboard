@@ -89,9 +89,16 @@ function isManualReview(rec: any) {
 }
 
 function effectiveUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
-  if (isManualReview(rec)) return 'REVIEW';
   const raw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
-  return baseEligibility(raw);
+  const base = baseEligibility(raw);
+
+  // ✅ HARD-STOP: if a record is UNSUITABLE/FAIL, it can never be downgraded to REVIEW/SAFE
+  if (base === 'UNSUITABLE') return 'UNSUITABLE';
+
+  // Review override only applies when NOT unsuitable
+  if (isManualReview(rec)) return 'REVIEW';
+
+  return base;
 }
 
 // Creates a "normalized" record so DrillDownPanel always has what it expects
