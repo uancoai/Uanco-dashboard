@@ -111,10 +111,11 @@ function normalizeForPanel(r: any) {
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
   const bookingStatus: 'Booked' | 'Pending' = toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
 
-  // ✅ IMPORTANT: include exact Airtable field name "Created time"
+  // ✅ IMPORTANT: include Airtable record-level createdTime as first fallback
   const ts =
     getFirstNonEmpty(r, [
-      'Created time', // ✅ exact
+      'createdTime', // ✅ Airtable record meta timestamp
+      'Created time', // ✅ Airtable field (if you have one)
       'Created Time', // legacy
       'created_at',
       'Created',
