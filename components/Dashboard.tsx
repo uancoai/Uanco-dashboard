@@ -149,6 +149,11 @@ const Dashboard: React.FC<Props> = ({
       // Airtable record meta timestamp (best if present)
       'createdTime',
 
+      // Airtable formula field we just added (preferred for ordering)
+      'Auto Created Time',
+      'auto_created_time',
+      'autoCreatedTime',
+
       // Airtable field variations (case differences matter)
       'Created time',
       'Created Time',
@@ -240,6 +245,9 @@ const Dashboard: React.FC<Props> = ({
                 const d = parseDateMaybe(
                   getFirstNonEmpty(r, [
                     'createdTime',
+                    'Auto Created Time',
+                    'auto_created_time',
+                    'autoCreatedTime',
                     'Created time',
                     'Created Time',
                     'created_at',
