@@ -89,6 +89,28 @@ function parseDateMaybe(v: any) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function getBestTimestampValue(rec: any) {
+  // Priority order: Airtable record meta -> formula created time -> legacy fields -> webhook
+  return getFirstNonEmpty(rec, [
+    'createdTime',
+    'Auto Created Time',
+    'auto_created_time',
+    'autoCreatedTime',
+    'Created time',
+    'Created Time',
+    'created_at',
+    'Created',
+    'submitted_at',
+    'Submitted At',
+    'webhook_timestamp',
+    'Webhook Timestamp',
+  ]);
+}
+
+function getBestTimestampDate(rec: any) {
+  return parseDateMaybe(getBestTimestampValue(rec));
+}
+
 function formatShortDate(d: Date | null) {
   if (!d) return '';
   return d.toLocaleString(undefined, {
@@ -145,30 +167,11 @@ const Dashboard: React.FC<Props> = ({
   }, [metrics, preScreens]);
 
   const recent = useMemo(() => {
-    const dateKeys = [
-      // Airtable record meta timestamp (best if present)
-      'createdTime',
-
-      // Airtable formula field we just added (preferred for ordering)
-      'Auto Created Time',
-      'auto_created_time',
-      'autoCreatedTime',
-
-      // Airtable field variations (case differences matter)
-      'Created time',
-      'Created Time',
-      'created_at',
-      'Created',
-      'submitted_at',
-      'Submitted At',
-      'webhook_timestamp',
-      'Webhook Timestamp',
-    ];
-
     const copy = [...preScreens];
+
     copy.sort((a, b) => {
-      const da = parseDateMaybe(getFirstNonEmpty(a, dateKeys));
-      const db = parseDateMaybe(getFirstNonEmpty(b, dateKeys));
+      const da = getBestTimestampDate(a);
+      const db = getBestTimestampDate(b);
       return (db?.getTime() || 0) - (da?.getTime() || 0);
     });
 
@@ -261,22 +264,7 @@ const Dashboard: React.FC<Props> = ({
 
                 const eligUi = toUiEligibility(r);
 
-                const d = parseDateMaybe(
-                  getFirstNonEmpty(r, [
-                    'createdTime',
-                    'Auto Created Time',
-                    'auto_created_time',
-                    'autoCreatedTime',
-                    'Created time',
-                    'Created Time',
-                    'created_at',
-                    'Created',
-                    'submitted_at',
-                    'Submitted At',
-                    'webhook_timestamp',
-                    'Webhook Timestamp',
-                  ])
-                );
+                const d = getBestTimestampDate(r);
 
                 return (
                   <button
