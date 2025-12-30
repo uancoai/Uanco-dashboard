@@ -280,7 +280,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
       {/* List */}
       <div className="bg-white rounded-3xl border shadow-soft overflow-hidden">
-        <div className="px-6 py-4 border-b bg-white/60">
+        <div className="hidden sm:block px-6 py-4 border-b bg-white/60">
           <div className="grid grid-cols-12 gap-4 items-center">
             <div className="col-span-5 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Clients</div>
             <div className="col-span-3 text-[10px] font-bold uppercase tracking-widest text-uanco-400">Treatment</div>
@@ -304,18 +304,61 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                   onClick={() => setSelected(r)}
                   className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                 >
-                  <div className="grid grid-cols-12 gap-4 items-center">
-                    <div className="col-span-5 min-w-0">
+                  <div className="flex flex-col gap-3 sm:grid sm:grid-cols-12 sm:gap-4 sm:items-center">
+                    {/* MOBILE: top line (name + status/actions) */}
+                    <div className="flex items-start justify-between gap-3 sm:hidden">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{r.name}</p>
+                        <p className="text-[12px] text-uanco-500 truncate">{r.email || '—'}</p>
+                        <p className="text-[11px] text-uanco-400 whitespace-nowrap mt-1">{formatShortDate(d)}</p>
+                      </div>
+
+                      <div className="shrink-0 flex flex-col items-end gap-2">
+                        <span
+                          className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
+                            r.eligibility
+                          )}`}
+                        >
+                          {r.eligibility}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleBooking(r);
+                          }}
+                          className={`inline-flex items-center text-[10px] font-bold uppercase px-2 py-1 rounded-full border transition-colors hover:opacity-90 ${bookingBadgeClasses(
+                            r.booking_status
+                          )}`}
+                          title="Click to toggle Booked / Pending"
+                        >
+                          {r.booking_status === 'Booked' ? 'Booked' : 'Pending'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* MOBILE: treatment line */}
+                    <div className="sm:hidden">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-uanco-400">Treatment</p>
+                      <p className="text-[12px] text-uanco-600 truncate">{String(r.treatment_selected || '—')}</p>
+                    </div>
+
+                    {/* DESKTOP: Clients */}
+                    <div className="hidden sm:block sm:col-span-5 min-w-0">
                       <p className="text-sm font-medium truncate">{r.name}</p>
                       <p className="text-[12px] text-uanco-500 truncate">{r.email || '—'}</p>
                       <p className="text-[11px] text-uanco-400 whitespace-nowrap mt-1">{formatShortDate(d)}</p>
                     </div>
 
-                    <div className="col-span-3 min-w-0">
+                    {/* DESKTOP: Treatment */}
+                    <div className="hidden sm:block sm:col-span-3 min-w-0">
                       <p className="text-[12px] text-uanco-600 truncate">{String(r.treatment_selected || '—')}</p>
                     </div>
 
-                    <div className="col-span-2">
+                    {/* DESKTOP: Eligibility */}
+                    <div className="hidden sm:block sm:col-span-2">
                       <span
                         className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
                           r.eligibility
@@ -325,7 +368,8 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                       </span>
                     </div>
 
-                    <div className="col-span-2 flex justify-end">
+                    {/* DESKTOP: Booked */}
+                    <div className="hidden sm:flex sm:col-span-2 justify-end">
                       <button
                         type="button"
                         onClick={(e) => {
