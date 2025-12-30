@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import KPICard from './KPICard';
 import DrillDownPanel from './DrillDownPanel';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ChevronLeft } from 'lucide-react';
 
 type Props = {
   clinicId?: string;
@@ -192,10 +192,26 @@ const Dashboard: React.FC<Props> = ({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-end">
-        <h2 className="text-3xl font-serif">Overview</h2>
+      <div className="flex items-end justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              // Safe back: if there’s no meaningful history, just stay on Overview
+              if (window.history.length > 1) window.history.back();
+              else onNavigate('overview');
+            }}
+            className="inline-flex items-center justify-center h-10 w-10 rounded-2xl border border-uanco-100 bg-white text-uanco-600 hover:bg-uanco-50 hover:text-uanco-900 transition-colors"
+            aria-label="Back"
+            title="Back"
+          >
+            <ChevronLeft size={18} />
+          </button>
 
-        <div className="flex items-center gap-3">
+          <h2 className="text-3xl font-serif truncate">Overview</h2>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
           <span className="text-xs font-bold text-uanco-400 uppercase tracking-widest">
             {clinicName || clinicId || 'Clinic'}
           </span>
