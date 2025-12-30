@@ -313,7 +313,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
                         <p className="text-[11px] text-uanco-400 whitespace-nowrap mt-1">{formatShortDate(d)}</p>
                       </div>
 
-                      <div className="shrink-0 flex flex-col items-end gap-2">
+                      <div className="shrink-0 flex flex-wrap justify-end gap-2">
                         <span
                           className={`inline-flex text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${badgeClasses(
                             r.eligibility
