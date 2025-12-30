@@ -10,7 +10,7 @@ import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
 
-import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, RotateCw } from 'lucide-react';
+import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, RotateCw, ChevronLeft } from 'lucide-react';
 
 type SessionState = any | null; // null=logged out, object=logged in
 
@@ -175,6 +175,19 @@ const App = () => {
     setCurrentView(view);
     setSidebarOpen(false);
     window.history.pushState({}, '', `/${view}`);
+  };
+
+  const handleBack = () => {
+    // If they're not on overview, go back to overview (no sidebar needed)
+    if (currentView !== 'overview') {
+      setCurrentView('overview');
+      setSidebarOpen(false);
+      window.history.pushState({}, '', `/overview`);
+      return;
+    }
+
+    // Fallback: browser back
+    window.history.back();
   };
 
   // ✅ Persist booking status (optimistic UI + save to Airtable)
@@ -365,7 +378,7 @@ const App = () => {
 
       <main className="flex-1 md:ml-64 min-h-screen flex flex-col transition-all duration-300">
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-uanco-100 flex items-center justify-between px-6 md:px-8 sticky top-0 z-20">
-          <div className="flex items-center gap-4 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => setSidebarOpen(true)}
               className="md:hidden p-2 -ml-2 text-uanco-400 hover:text-uanco-900 transition-colors"
@@ -373,6 +386,18 @@ const App = () => {
             >
               <Menu size={22} />
             </button>
+
+            {currentView !== 'overview' && (
+              <button
+                onClick={handleBack}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-uanco-100 bg-white hover:bg-uanco-50 text-uanco-700 transition-colors"
+                aria-label="Back"
+                title="Back"
+              >
+                <ChevronLeft size={16} />
+                <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-widest">Back</span>
+              </button>
+            )}
 
             <div className="flex flex-col min-w-0">
               <p className="text-[10px] font-bold text-uanco-400 uppercase tracking-widest flex items-center gap-2">
