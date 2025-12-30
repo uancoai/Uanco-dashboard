@@ -286,7 +286,7 @@ const Dashboard: React.FC<Props> = ({
                     onClick={() => setSelected(r)}
                     className="w-full text-left px-6 py-4 hover:bg-uanco-50 transition-colors"
                   >
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-start sm:items-center justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-3">
                           <p className="text-sm font-medium truncate">{name}</p>
@@ -298,13 +298,13 @@ const Dashboard: React.FC<Props> = ({
                             {eligUi}
                           </span>
                         </div>
-
                         <p className="text-[12px] text-uanco-500 truncate">
-                          {email} {email && '•'} {String(treatment)}
+                          <span className="hidden sm:inline">{email}</span>
+                          <span className="hidden sm:inline">{email && ' • '}</span>
+                          <span>{String(treatment)}</span>
                         </p>
                       </div>
-
-                      <div className="text-[11px] text-uanco-400 whitespace-nowrap">{formatShortDate(d)}</div>
+                      <div className="text-[11px] text-uanco-400 whitespace-nowrap shrink-0">{formatShortDate(d)}</div>
                     </div>
                   </button>
                 );
