@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import KPICard from './KPICard';
 import DrillDownPanel from './DrillDownPanel';
-import { ArrowRight, ChevronLeft } from 'lucide-react';
+import { ArrowRight, ChevronLeft, RefreshCw } from 'lucide-react';
 
 type Props = {
   clinicId?: string;
@@ -14,6 +14,7 @@ type Props = {
   metrics?: any;
 
   onUpdateRecord?: (id: string, updates: any) => void;
+  onRefresh?: () => void | Promise<void>;
 };
 
 function toLower(v: any) {
@@ -134,8 +135,20 @@ const Dashboard: React.FC<Props> = ({
   questions = [],
   metrics = {},
   onUpdateRecord,
+  onRefresh,
 }) => {
   const [selected, setSelected] = useState<any | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const totals = useMemo(() => {
     // ✅ Single source of truth: what the UI is actually rendering
@@ -215,6 +228,23 @@ const Dashboard: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className={`inline-flex items-center justify-center h-10 w-10 rounded-2xl border border-uanco-100 bg-white text-uanco-600 transition-colors ${
+                refreshing
+                  ? 'opacity-60 cursor-not-allowed'
+                  : 'hover:bg-uanco-50 hover:text-uanco-900'
+              }`}
+              aria-label="Refresh"
+              title={refreshing ? 'Refreshing…' : 'Refresh'}
+            >
+              <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
+            </button>
+          )}
+
           <span className="text-xs font-bold text-uanco-400 uppercase tracking-widest">
             {clinicName || clinicId || 'Clinic'}
           </span>

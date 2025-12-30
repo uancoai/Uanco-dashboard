@@ -5,6 +5,9 @@ type Props = {
   records: any[];
   dropOffs?: any[];
   onUpdateRecord?: (id: string, updates: any) => void;
+
+  // optional: lets App.tsx route cleanly without relying on browser back
+  onNavigate?: (view: string) => void;
 };
 
 type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
@@ -140,7 +143,7 @@ function normalizeForPanel(r: any) {
   };
 }
 
-const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord }) => {
+const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord, onNavigate }) => {
   const [tab, setTab] = useState<Tab>('all');
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<any | null>(null);
@@ -198,7 +201,20 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
-        <div>
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              if (onNavigate) return onNavigate('overview');
+              // fallback (still safe): reload to app root which defaults to Overview
+              window.location.href = '/';
+            }}
+            className="mb-3 inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50"
+            aria-label="Back to Overview"
+          >
+            ← Back
+          </button>
+
           <h2 className="text-3xl font-serif">Pre-Screens</h2>
           <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
         </div>
