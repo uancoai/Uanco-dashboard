@@ -178,16 +178,10 @@ const App = () => {
   };
 
   const handleBack = () => {
-    // If they're not on overview, go back to overview (no sidebar needed)
-    if (currentView !== 'overview') {
-      setCurrentView('overview');
-      setSidebarOpen(false);
-      window.history.pushState({}, '', `/overview`);
-      return;
-    }
-
-    // Fallback: browser back
-    window.history.back();
+    // Simple UX: always take the user back to Overview
+    setCurrentView('overview');
+    setSidebarOpen(false);
+    window.history.pushState({}, '', `/overview`);
   };
 
   // ✅ Persist booking status (optimistic UI + save to Airtable)
@@ -280,16 +274,8 @@ const App = () => {
                       disabled={isRefreshing}
                       className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />{' '}
+                      <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
                       {isRefreshing ? 'Refreshing' : 'Retry'}
-                    </button>
-                    <button
-                      onClick={handleSoftRefresh}
-                      disabled={isRefreshing}
-                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />{' '}
-                      {isRefreshing ? 'Refreshing' : 'Refresh data'}
                     </button>
                   </div>
 
@@ -316,6 +302,7 @@ const App = () => {
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
             onUpdateRecord={handleUpdateRecord}
+            onRefresh={handleSoftRefresh}
           />
         );
 
@@ -360,6 +347,7 @@ const App = () => {
             questions={dashboardData?.questions || []}
             dropOffs={dashboardData?.dropOffs || []}
             onUpdateRecord={handleUpdateRecord}
+            onRefresh={handleSoftRefresh}
           />
         );
     }
