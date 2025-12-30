@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import KPICard from './KPICard';
 import DrillDownPanel from './DrillDownPanel';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 
 type Props = {
   clinicId?: string;
@@ -14,6 +14,7 @@ type Props = {
   metrics?: any;
 
   onUpdateRecord?: (id: string, updates: any) => void;
+  onRefresh?: () => void;
 };
 
 function toLower(v: any) {
@@ -112,8 +113,15 @@ const Dashboard: React.FC<Props> = ({
   questions = [],
   metrics = {},
   onUpdateRecord,
+  onRefresh,
 }) => {
   const [selected, setSelected] = useState<any | null>(null);
+
+  const handleRefresh = () => {
+    if (onRefresh) return onRefresh();
+    // Fallback: refresh the page (Supabase session should persist)
+    window.location.reload();
+  };
 
   const totals = useMemo(() => {
     // ✅ Single source of truth: what the UI is actually rendering
@@ -194,9 +202,22 @@ const Dashboard: React.FC<Props> = ({
       {/* Header */}
       <div className="flex justify-between items-end">
         <h2 className="text-3xl font-serif">Overview</h2>
-        <span className="text-xs font-bold text-uanco-400 uppercase tracking-widest">
-          {clinicName || clinicId || 'Clinic'}
-        </span>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="inline-flex items-center justify-center h-9 w-9 rounded-xl border border-uanco-100 bg-white text-uanco-500 hover:text-uanco-900 hover:bg-uanco-50 transition-colors"
+            aria-label="Refresh dashboard"
+            title="Refresh"
+          >
+            <RefreshCw size={16} />
+          </button>
+
+          <span className="text-xs font-bold text-uanco-400 uppercase tracking-widest">
+            {clinicName || clinicId || 'Clinic'}
+          </span>
+        </div>
       </div>
 
       {/* KPI row */}
