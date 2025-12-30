@@ -263,16 +263,20 @@ const App = () => {
 
                   <div className="mt-4 flex gap-2">
                     <button
-                      onClick={() => fetchProfileAndData(session?.access_token)}
-                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90"
+                      onClick={handleSoftRefresh}
+                      disabled={isRefreshing}
+                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl bg-uanco-900 text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <RefreshCw size={14} /> Retry
+                      <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />{' '}
+                      {isRefreshing ? 'Refreshing' : 'Retry'}
                     </button>
                     <button
-                      onClick={() => window.location.reload()}
-                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50"
+                      onClick={handleSoftRefresh}
+                      disabled={isRefreshing}
+                      className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl border border-uanco-100 text-uanco-600 hover:bg-uanco-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Refresh
+                      <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />{' '}
+                      {isRefreshing ? 'Refreshing' : 'Refresh data'}
                     </button>
                   </div>
 
