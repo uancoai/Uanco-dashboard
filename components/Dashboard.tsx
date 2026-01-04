@@ -160,7 +160,6 @@ const Dashboard: React.FC<Props> = ({
   clinicName,
   onNavigate,
   preScreens = [],
-  questions = [],
   metrics = {},
   onUpdateRecord,
   onRefresh,
@@ -371,26 +370,23 @@ const Dashboard: React.FC<Props> = ({
 
           <div className="mt-6 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Questions captured</span>
-              <span className="text-sm font-medium text-uanco-900">{questions.length}</span>
+              <span className="text-[12px] text-uanco-500">Enquiries</span>
+              <span className="text-sm font-medium text-uanco-900">{totals.total}</span>
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Safe rate</span>
-              <span className="text-sm font-medium text-uanco-900">{safeRateUi}%</span>
+              <span className="text-[12px] text-uanco-500">Safe to book</span>
+              <span className="text-sm font-medium text-uanco-900">{totals.safeToBook}</span>
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Drop-off rate</span>
-              <span className="text-sm font-medium text-uanco-900">{dropOffRateUi}%</span>
+              <span className="text-[12px] text-uanco-500">Drop-offs</span>
+              <span className="text-sm font-medium text-uanco-900">
+                {totals.dropoffs}{dropOffRateUi ? ` (${dropOffRateUi}%)` : ''}
+              </span>
             </div>
 
             <div className="pt-4 mt-1 border-t border-uanco-100" />
-
-            <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Booking intent captured</span>
-              <span className="text-sm font-medium text-uanco-900">{bookingSignals.captured}</span>
-            </div>
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Ready to book</span>
