@@ -240,6 +240,8 @@ const Dashboard: React.FC<Props> = ({
 
     for (const r of preScreens) {
       const intent = normalizeIntent(getBookingIntent(r));
+      if (!intent) continue;
+
       if (intent === 'ready') ready++;
       if (intent === 'hesitate') {
         hesitate++;
@@ -249,14 +251,10 @@ const Dashboard: React.FC<Props> = ({
       }
     }
 
-    const topReasons = Object.entries(reasons)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3);
+    const captured = ready + hesitate;
+    const topReason = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
 
-    const total = ready + hesitate;
-    const hesitateRate = total ? Math.round((hesitate / total) * 100) : 0;
-
-    return { ready, hesitate, hesitateRate, topReasons };
+    return { captured, ready, hesitate, topReason };
   }, [preScreens]);
 
   return (
@@ -390,31 +388,26 @@ const Dashboard: React.FC<Props> = ({
             <div className="pt-4 mt-1 border-t border-uanco-100" />
 
             <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">Booking intent captured</span>
+              <span className="text-sm font-medium text-uanco-900">{bookingSignals.captured}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Ready to book</span>
               <span className="text-sm font-medium text-uanco-900">{bookingSignals.ready}</span>
             </div>
 
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Hesitating</span>
-              <span className="text-sm font-medium text-uanco-900">
-                {bookingSignals.hesitate}
-                {bookingSignals.hesitate ? ` (${bookingSignals.hesitateRate}%)` : ''}
-              </span>
+              <span className="text-sm font-medium text-uanco-900">{bookingSignals.hesitate}</span>
             </div>
 
-            {bookingSignals.topReasons.length > 0 && (
-              <div className="pt-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-uanco-400 mb-2">Top reasons</p>
-                <div className="space-y-1">
-                  {bookingSignals.topReasons.map(([reason, count]) => (
-                    <div key={reason} className="flex items-center justify-between gap-3">
-                      <span className="text-[12px] text-uanco-500 truncate">{reason}</span>
-                      <span className="text-[12px] font-medium text-uanco-900 shrink-0">{count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">Top hesitation</span>
+              <span className="text-sm font-medium text-uanco-900 truncate max-w-[160px] text-right">
+                {bookingSignals.topReason}
+              </span>
+            </div>
           </div>
 
           <div className="mt-6 text-[12px] text-uanco-500">
