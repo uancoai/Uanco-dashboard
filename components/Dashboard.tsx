@@ -370,7 +370,7 @@ const Dashboard: React.FC<Props> = ({
 
           <div className="mt-6 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Enquiries</span>
+              <span className="text-[12px] text-uanco-500">Pre-screens started</span>
               <span className="text-sm font-medium text-uanco-900">{totals.total}</span>
             </div>
 
@@ -389,14 +389,6 @@ const Dashboard: React.FC<Props> = ({
             <div className="pt-4 mt-1 border-t border-uanco-100" />
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Intent recorded</span>
-              <span className="text-sm font-medium text-uanco-900 text-right">
-                {bookingSignals.captured}
-                <span className="text-uanco-400"> ({bookingSignals.ready}+{bookingSignals.hesitate})</span>
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Ready to book</span>
               <span className="text-sm font-medium text-uanco-900">{bookingSignals.ready}</span>
             </div>
@@ -404,13 +396,6 @@ const Dashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Hesitating</span>
               <span className="text-sm font-medium text-uanco-900">{bookingSignals.hesitate}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Top hesitation reason</span>
-              <span className="text-sm font-medium text-uanco-900 truncate max-w-[160px] text-right">
-                {bookingSignals.topReason}
-              </span>
             </div>
           </div>
 
