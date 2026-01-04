@@ -127,6 +127,34 @@ function isBooked(rec: any) {
   return toLower(raw) === 'booked';
 }
 
+function normalizeIntent(v: any): 'ready' | 'hesitate' | null {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return null;
+
+  // tolerate different labels
+  if (s.includes('ready')) return 'ready';
+  if (s.includes('hesitat')) return 'hesitate';
+  if (s.includes('not ready')) return 'hesitate';
+
+  if (s === 'ready') return 'ready';
+  if (s === 'hesitate') return 'hesitate';
+
+  return null;
+}
+
+function getBookingIntent(rec: any) {
+  return getFirstNonEmpty(rec, ['booking_intent', 'Booking Intent', 'bookingIntent']);
+}
+
+function getHesitationReason(rec: any) {
+  return getFirstNonEmpty(rec, [
+    'booking_hesitation_reason',
+    'Booking Hesitation Reason',
+    'hesitation_reason',
+    'Hesitation Reason',
+  ]);
+}
+
 const Dashboard: React.FC<Props> = ({
   clinicId,
   clinicName,
@@ -204,6 +232,32 @@ const Dashboard: React.FC<Props> = ({
     const dropoffs = Number(totals.dropoffs ?? 0);
     return Math.round((dropoffs / total) * 100);
   }, [preScreens, totals.dropoffs]);
+
+  const bookingSignals = useMemo(() => {
+    const reasons: Record<string, number> = {};
+    let ready = 0;
+    let hesitate = 0;
+
+    for (const r of preScreens) {
+      const intent = normalizeIntent(getBookingIntent(r));
+      if (intent === 'ready') ready++;
+      if (intent === 'hesitate') {
+        hesitate++;
+        const reasonRaw = getHesitationReason(r);
+        const reason = String(reasonRaw ?? '').trim();
+        if (reason) reasons[reason] = (reasons[reason] || 0) + 1;
+      }
+    }
+
+    const topReasons = Object.entries(reasons)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    const total = ready + hesitate;
+    const hesitateRate = total ? Math.round((hesitate / total) * 100) : 0;
+
+    return { ready, hesitate, hesitateRate, topReasons };
+  }, [preScreens]);
 
   return (
     <div className="space-y-6">
@@ -332,6 +386,35 @@ const Dashboard: React.FC<Props> = ({
               <span className="text-[12px] text-uanco-500">Drop-off rate</span>
               <span className="text-sm font-medium text-uanco-900">{dropOffRateUi}%</span>
             </div>
+
+            <div className="pt-4 mt-1 border-t border-uanco-100" />
+
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">Ready to book</span>
+              <span className="text-sm font-medium text-uanco-900">{bookingSignals.ready}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">Hesitating</span>
+              <span className="text-sm font-medium text-uanco-900">
+                {bookingSignals.hesitate}
+                {bookingSignals.hesitate ? ` (${bookingSignals.hesitateRate}%)` : ''}
+              </span>
+            </div>
+
+            {bookingSignals.topReasons.length > 0 && (
+              <div className="pt-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-uanco-400 mb-2">Top reasons</p>
+                <div className="space-y-1">
+                  {bookingSignals.topReasons.map(([reason, count]) => (
+                    <div key={reason} className="flex items-center justify-between gap-3">
+                      <span className="text-[12px] text-uanco-500 truncate">{reason}</span>
+                      <span className="text-[12px] font-medium text-uanco-900 shrink-0">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 text-[12px] text-uanco-500">
