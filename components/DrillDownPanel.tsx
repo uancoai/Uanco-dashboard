@@ -342,7 +342,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     return rows.filter((r) => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
   }, [raw]);
 
-  const aiSummary = getFirstNonEmpty(raw, ['Pre-screen Summary (AI)', 'ai_summary', 'AI Summary']);
   const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
 
   const showReviewSignals = eligibilityUi === 'REVIEW' || reviewReasons.length > 0;
@@ -550,15 +549,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
               )}
             </div>
 
-            {/* AI summary */}
-            {aiSummary && (
-              <div className="bg-white rounded-2xl border border-slate-100 p-4">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">
-                  AI summary
-                </p>
-                <p className="text-sm text-slate-700 whitespace-pre-line">{String(aiSummary)}</p>
-              </div>
-            )}
           </div>
 
           {/* Actions */}
