@@ -370,7 +370,7 @@ const Dashboard: React.FC<Props> = ({
 
           <div className="mt-6 space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Pre-screens started</span>
+              <span className="text-[12px] text-uanco-500">Enquiries</span>
               <span className="text-sm font-medium text-uanco-900">{totals.total}</span>
             </div>
 
@@ -382,7 +382,7 @@ const Dashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Drop-offs</span>
               <span className="text-sm font-medium text-uanco-900">
-                {totals.dropoffs}{dropOffRateUi ? ` (${dropOffRateUi}%)` : ''}
+                {totals.dropoffs}{dropOffRateUi > 0 ? ` (${dropOffRateUi}%)` : ''}
               </span>
             </div>
 
