@@ -10,7 +10,7 @@ import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
 
-import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, RotateCw, ChevronLeft } from 'lucide-react';
+import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, ChevronLeft } from 'lucide-react';
 
 type SessionState = any | null; // null=logged out, object=logged in
 
@@ -354,7 +354,7 @@ const App = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-uanco-50 font-sans text-uanco-900 selection:bg-uanco-900 selection:text-white">
+    <div className="flex min-h-screen bg-uanco-50 font-sans text-uanco-900 selection:bg-uanco-900 selection:text-white overflow-x-hidden">
       <Sidebar
         currentView={currentView}
         onNavigate={handleNavigate}
@@ -401,16 +401,6 @@ const App = () => {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleSoftRefresh}
-              disabled={isRefreshing}
-              className="flex items-center gap-2 text-uanco-400 hover:text-uanco-900 transition-all text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-uanco-50 border border-transparent hover:border-uanco-100 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Refresh data"
-            >
-              <RotateCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-              {isRefreshing ? 'Refreshing' : 'Refresh'}
-            </button>
-
-            <button
               onClick={handleLogout}
               className="flex items-center gap-2 text-uanco-400 hover:text-rose-600 transition-all text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-rose-50 border border-transparent hover:border-rose-100"
             >
@@ -419,7 +409,7 @@ const App = () => {
           </div>
         </header>
 
-        <div className="flex-1 p-4 md:p-8 lg:p-12 max-w-[1600px] mx-auto w-full">
+        <div className="flex-1 p-4 md:p-8 lg:p-12 max-w-[1600px] mx-auto w-full overflow-x-hidden">
           <div className="animate-in fade-in duration-700">{renderView()}</div>
         </div>
 
