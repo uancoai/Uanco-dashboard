@@ -260,9 +260,9 @@ const Dashboard: React.FC<Props> = ({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-end justify-between gap-4">
-      <div className="flex items-center gap-3 min-w-0">
-        <h2 className="text-3xl font-serif truncate">Overview</h2>
-      </div>
+        <div className="flex items-center gap-3 min-w-0">
+          <h2 className="text-3xl font-serif truncate">Overview</h2>
+        </div>
 
         <div className="flex items-center gap-3 shrink-0">
           {onRefresh && (
@@ -389,10 +389,11 @@ const Dashboard: React.FC<Props> = ({
             <div className="pt-4 mt-1 border-t border-uanco-100" />
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">
-                Intent recorded <span className="text-[10px] text-uanco-300">(Ready + Hesitating)</span>
+              <span className="text-[12px] text-uanco-500">Intent recorded</span>
+              <span className="text-sm font-medium text-uanco-900 text-right">
+                {bookingSignals.captured}
+                <span className="text-uanco-400"> ({bookingSignals.ready}+{bookingSignals.hesitate})</span>
               </span>
-              <span className="text-sm font-medium text-uanco-900">{bookingSignals.captured}</span>
             </div>
 
             <div className="flex items-center justify-between">
