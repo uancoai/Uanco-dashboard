@@ -81,6 +81,24 @@ function buildReviewReasons(prescreen: any): string[] {
   const conditions = getFirstNonEmpty(prescreen, ['conditions', 'Medical Conditions', 'medical_conditions']);
   asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
 
+  // Add booking intent and hesitation
+  const intent = getFirstNonEmpty(prescreen, [
+    'booking_intent',
+    'Booking Intent',
+    'bookingIntent',
+    'Booking intent',
+  ]);
+  const hesitation = getFirstNonEmpty(prescreen, [
+    'booking_hesitation_reason',
+    'Booking Hesitation Reason',
+    'bookingHesitationReason',
+    'Hesitation Reason',
+    'hesitation_reason',
+  ]);
+
+  if (intent) reasons.push(`Booking intent: ${String(intent).trim()}`);
+  if (hesitation) reasons.push(`Hesitation: ${String(hesitation).trim()}`);
+
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
 
@@ -186,6 +204,28 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     getFirstNonEmpty(record, ['treatment_selected', 'Treatment']) ||
     '—';
 
+  const bookingIntent =
+    getFirstNonEmpty(raw, ['booking_intent', 'Booking Intent', 'bookingIntent', 'Booking intent']) ||
+    getFirstNonEmpty(record, ['booking_intent', 'Booking Intent', 'bookingIntent', 'Booking intent']) ||
+    '';
+
+  const bookingHesitationReason =
+    getFirstNonEmpty(raw, [
+      'booking_hesitation_reason',
+      'Booking Hesitation Reason',
+      'bookingHesitationReason',
+      'Hesitation Reason',
+      'hesitation_reason',
+    ]) ||
+    getFirstNonEmpty(record, [
+      'booking_hesitation_reason',
+      'Booking Hesitation Reason',
+      'bookingHesitationReason',
+      'Hesitation Reason',
+      'hesitation_reason',
+    ]) ||
+    '';
+
   // ✅ Effective eligibility: locked REVIEW unless review complete
   const eligibilityUi: 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' = useMemo(() => {
     if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
@@ -281,6 +321,16 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
           'Allergies (detail)',
         ]),
       },
+      { label: 'Booking intent', value: getFirstNonEmpty(raw, ['booking_intent', 'Booking Intent', 'bookingIntent']) },
+      {
+        label: 'Hesitation reason',
+        value: getFirstNonEmpty(raw, [
+          'booking_hesitation_reason',
+          'Booking Hesitation Reason',
+          'bookingHesitationReason',
+          'Hesitation Reason',
+        ]),
+      },
       { label: 'Medications', value: getFirstNonEmpty(raw, ['medications', 'Medications']) },
       {
         label: 'Medical conditions',
@@ -365,6 +415,28 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 Requested treatment
               </p>
               <p className="text-sm font-medium text-slate-900 truncate">• {String(treatment)}</p>
+
+              {(bookingIntent || bookingHesitationReason) && (
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                    Booking insight
+                  </p>
+
+                  <div className="flex flex-wrap gap-2">
+                    {bookingIntent && (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200 bg-white text-slate-700">
+                        {String(bookingIntent)}
+                      </span>
+                    )}
+
+                    {bookingHesitationReason && (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-slate-200 bg-white text-slate-700">
+                        {String(bookingHesitationReason)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
