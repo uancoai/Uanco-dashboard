@@ -389,6 +389,13 @@ const Dashboard: React.FC<Props> = ({
             <div className="pt-4 mt-1 border-t border-uanco-100" />
 
             <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">
+                Intent recorded <span className="text-[10px] text-uanco-300">(Ready + Hesitating)</span>
+              </span>
+              <span className="text-sm font-medium text-uanco-900">{bookingSignals.captured}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Ready to book</span>
               <span className="text-sm font-medium text-uanco-900">{bookingSignals.ready}</span>
             </div>
@@ -399,7 +406,7 @@ const Dashboard: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Top hesitation</span>
+              <span className="text-[12px] text-uanco-500">Top hesitation reason</span>
               <span className="text-sm font-medium text-uanco-900 truncate max-w-[160px] text-right">
                 {bookingSignals.topReason}
               </span>
