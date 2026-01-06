@@ -92,13 +92,18 @@ export const handler: Handler = async (event) => {
     const fields: Record<string, any> = {};
 
     // ---- Booking status ----
-    const booking = updates.booking_status ?? updates["Booking Status"];
+    const booking =
+      updates.booking_status ??
+      updates["booking_status"] ??
+      updates["Booking Status"] ??
+      updates["Booking Status (Dashboard)"];
     if (booking !== undefined) {
       if (booking !== "Booked" && booking !== "Pending") {
         return json(400, { error: "booking_status must be 'Booked' or 'Pending'" });
       }
       // IMPORTANT: must match Airtable field name EXACTLY
-      fields["booking_status"] = booking;
+      // Dashboard-specific field (not mapped from Landbot/Make)
+      fields["Booking Status (Dashboard)"] = booking;
     }
 
     // ---- Review complete (checkbox) ----
