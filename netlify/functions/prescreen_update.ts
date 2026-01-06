@@ -103,7 +103,7 @@ export const handler: Handler = async (event) => {
       }
       // IMPORTANT: must match Airtable field name EXACTLY
       // Dashboard-specific field (not mapped from Landbot/Make)
-      fields["Booking Status (Dashboard)"] = booking;
+      fields["booking_status"] = booking;
     }
 
     // ---- Review complete (checkbox) ----
