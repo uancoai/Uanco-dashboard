@@ -87,18 +87,43 @@ export const handler: Handler = async (event) => {
     const { id, updates } = parsed || {};
     if (!id || !updates) return json(400, { error: "Missing id or updates" });
 
-    // 5) Allow only booking_status for now
-    const booking = updates.booking_status;
-    if (booking !== "Booked" && booking !== "Pending") {
-      return json(400, { error: "booking_status must be 'Booked' or 'Pending'" });
+    // 5) Allow-list updates (so UI changes persist after refresh)
+    // We accept multiple possible keys from the frontend, but only write safe fields to Airtable.
+    const fields: Record<string, any> = {};
+
+    // ---- Booking status ----
+    const booking = updates.booking_status ?? updates["Booking Status"];
+    if (booking !== undefined) {
+      if (booking !== "Booked" && booking !== "Pending") {
+        return json(400, { error: "booking_status must be 'Booked' or 'Pending'" });
+      }
+      // IMPORTANT: must match Airtable field name EXACTLY
+      fields["booking_status"] = booking;
     }
 
-    // IMPORTANT: must match Airtable field name EXACTLY
-    const airtableFieldName = "booking_status";
+    // ---- Review complete (checkbox) ----
+    const reviewComplete =
+      updates.review_complete ??
+      updates.reviewComplete ??
+      updates["Review Complete"];
+
+    if (reviewComplete !== undefined) {
+      // Airtable checkbox expects boolean
+      if (typeof reviewComplete !== "boolean") {
+        return json(400, { error: "review_complete must be a boolean" });
+      }
+      // IMPORTANT: must match Airtable field name EXACTLY
+      fields["Review Complete"] = reviewComplete;
+    }
+
+    // Nothing to update
+    if (Object.keys(fields).length === 0) {
+      return json(400, { error: "No supported updates provided" });
+    }
 
     const result = await airtablePatch(
       `/${baseId}/${encodeURIComponent(prescreensTable)}/${encodeURIComponent(id)}`,
-      { fields: { [airtableFieldName]: booking } }
+      { fields }
     );
 
     return json(200, { ok: true, record: result });
