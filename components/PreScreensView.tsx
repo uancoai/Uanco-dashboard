@@ -155,7 +155,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
   const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
 
-  useEffect(() => {
+useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const tabParam = (url.searchParams.get('tab') || url.searchParams.get('eligibility') || '').toLowerCase();
@@ -171,6 +171,26 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     } catch {
       // ignore
     }
+
+    // Compatibility: also read optional sessionStorage filters set by Dashboard KPI cards
+    const storedTab = sessionStorage.getItem('prescreens_tab');
+    const storedBooked = sessionStorage.getItem('prescreens_booked');
+
+    if (
+      storedTab === 'safe' ||
+      storedTab === 'review' ||
+      storedTab === 'unsuitable' ||
+      storedTab === 'all'
+    ) {
+      setTab(storedTab as Tab);
+    }
+
+    if (storedBooked === 'true') {
+      setBookedOnly(true);
+    }
+
+    sessionStorage.removeItem('prescreens_tab');
+    sessionStorage.removeItem('prescreens_booked');
     // run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

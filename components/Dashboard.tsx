@@ -282,48 +282,101 @@ const Dashboard: React.FC<Props> = ({
 
       {/* KPI row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KPICard
-          title="Total Prescreens"
-          value={totals.total}
-          variant="dark"
+        <div
+          role="button"
+          tabIndex={0}
+          className="w-full cursor-pointer"
           onClick={() => {
             sessionStorage.setItem('prescreens_tab', 'all');
             sessionStorage.removeItem('prescreens_bookedOnly');
             onNavigate('prescreens');
           }}
-        />
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sessionStorage.setItem('prescreens_tab', 'all');
+              sessionStorage.removeItem('prescreens_bookedOnly');
+              onNavigate('prescreens');
+            }
+          }}
+          aria-label="View all prescreens"
+          title="View all prescreens"
+        >
+          <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
+        </div>
 
-        <KPICard
-          title="Safe to Book"
-          value={totals.safeToBook}
+        <div
+          role="button"
+          tabIndex={0}
+          className="w-full cursor-pointer"
           onClick={() => {
             sessionStorage.setItem('prescreens_tab', 'safe');
             sessionStorage.removeItem('prescreens_bookedOnly');
             onNavigate('prescreens');
           }}
-        />
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sessionStorage.setItem('prescreens_tab', 'safe');
+              sessionStorage.removeItem('prescreens_bookedOnly');
+              onNavigate('prescreens');
+            }
+          }}
+          aria-label="View safe to book prescreens"
+          title="View safe to book"
+        >
+          <KPICard title="Safe to Book" value={totals.safeToBook} />
+        </div>
 
-        <KPICard
-          title="Manual Review"
-          value={totals.review}
+        <div
+          role="button"
+          tabIndex={0}
+          className="w-full cursor-pointer"
           onClick={() => {
             sessionStorage.setItem('prescreens_tab', 'review');
             sessionStorage.removeItem('prescreens_bookedOnly');
             onNavigate('prescreens');
           }}
-        />
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sessionStorage.setItem('prescreens_tab', 'review');
+              sessionStorage.removeItem('prescreens_bookedOnly');
+              onNavigate('prescreens');
+            }
+          }}
+          aria-label="View manual review prescreens"
+          title="View manual review"
+        >
+          <KPICard title="Manual Review" value={totals.review} />
+        </div>
 
-        <KPICard title="Drop-offs" value={totals.dropoffs} />
+        <div className="w-full">
+          <KPICard title="Drop-offs" value={totals.dropoffs} />
+        </div>
 
-        <KPICard
-          title="Booked"
-          value={totals.booked}
+        <div
+          role="button"
+          tabIndex={0}
+          className="w-full cursor-pointer"
           onClick={() => {
             sessionStorage.setItem('prescreens_tab', 'all');
             sessionStorage.setItem('prescreens_bookedOnly', '1');
             onNavigate('prescreens');
           }}
-        />
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sessionStorage.setItem('prescreens_tab', 'all');
+              sessionStorage.setItem('prescreens_bookedOnly', '1');
+              onNavigate('prescreens');
+            }
+          }}
+          aria-label="View booked prescreens"
+          title="View booked"
+        >
+          <KPICard title="Booked" value={totals.booked} />
+        </div>
       </div>
 
       {/* Main grid */}
