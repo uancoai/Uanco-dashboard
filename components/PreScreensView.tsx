@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import DrillDownPanel from './DrillDownPanel';
 
 type Props = {
@@ -38,6 +38,10 @@ function parseDateMaybe(v: any) {
 function formatShortDate(d: Date | null) {
   if (!d) return '';
   return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function isBookedUi(rec: any) {
+  return toLower(rec?.booking_status) === 'booked';
 }
 
 /**
@@ -145,10 +149,31 @@ function normalizeForPanel(r: any) {
 
 const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord, onNavigate }) => {
   const [tab, setTab] = useState<Tab>('all');
+  const [bookedOnly, setBookedOnly] = useState(false);
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<any | null>(null);
 
   const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const tabParam = (url.searchParams.get('tab') || url.searchParams.get('eligibility') || '').toLowerCase();
+      const bookedParam = (url.searchParams.get('booked') || '').toLowerCase();
+
+      if (tabParam === 'safe' || tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
+        setTab(tabParam as Tab);
+      }
+
+      if (bookedParam === '1' || bookedParam === 'true' || bookedParam === 'yes') {
+        setBookedOnly(true);
+      }
+    } catch {
+      // ignore
+    }
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const counts = useMemo(() => {
     let safe = 0,
@@ -165,12 +190,18 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     return { all: normalized.length, safe, review, unsuitable };
   }, [normalized]);
 
+  const bookedCount = useMemo(() => normalized.filter(isBookedUi).length, [normalized]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = [...normalized];
 
     if (tab !== 'all') {
       list = list.filter((r) => toLower(r?.eligibility) === tab);
+    }
+
+    if (bookedOnly) {
+      list = list.filter((r) => isBookedUi(r));
     }
 
     if (needle) {
@@ -190,7 +221,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     });
 
     return list;
-  }, [normalized, tab, q]);
+  }, [normalized, tab, q, bookedOnly]);
 
   const toggleBooking = (r: any) => {
     if (!onUpdateRecord) return;
@@ -210,7 +241,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
       {/* Controls */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={() => setTab('all')}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
@@ -253,6 +284,17 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
             }`}
           >
             Unsuitable ({counts.unsuitable})
+          </button>
+          <button
+            onClick={() => setBookedOnly((v) => !v)}
+            className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
+              bookedOnly
+                ? 'bg-uanco-900 text-white border-uanco-900'
+                : 'bg-white border-uanco-100 text-uanco-500 hover:bg-uanco-50'
+            }`}
+            title="Show booked clients only"
+          >
+            Booked ({bookedCount})
           </button>
         </div>
 

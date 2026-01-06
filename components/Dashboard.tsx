@@ -160,6 +160,7 @@ const Dashboard: React.FC<Props> = ({
   clinicName,
   onNavigate,
   preScreens = [],
+  questions = [],
   metrics = {},
   onUpdateRecord,
   onRefresh,
@@ -218,13 +219,6 @@ const Dashboard: React.FC<Props> = ({
     return copy.slice(0, 8);
   }, [preScreens]);
 
-  const safeRateUi = useMemo(() => {
-    const total = preScreens.length;
-    if (!total) return 0;
-    const safeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'SAFE').length;
-    return Math.round((safeCount / total) * 100);
-  }, [preScreens]);
-
   const dropOffRateUi = useMemo(() => {
     const total = preScreens.length;
     if (!total) return 0;
@@ -271,9 +265,7 @@ const Dashboard: React.FC<Props> = ({
               onClick={handleRefresh}
               disabled={refreshing}
               className={`inline-flex items-center justify-center h-10 w-10 rounded-2xl border border-uanco-100 bg-white text-uanco-600 transition-colors ${
-                refreshing
-                  ? 'opacity-60 cursor-not-allowed'
-                  : 'hover:bg-uanco-50 hover:text-uanco-900'
+                refreshing ? 'opacity-60 cursor-not-allowed' : 'hover:bg-uanco-50 hover:text-uanco-900'
               }`}
               aria-label="Refresh"
               title={refreshing ? 'Refreshing…' : 'Refresh'}
@@ -290,11 +282,48 @@ const Dashboard: React.FC<Props> = ({
 
       {/* KPI row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KPICard title="Total Prescreens" value={totals.total} variant="dark" />
-        <KPICard title="Safe to Book" value={totals.safeToBook} />
-        <KPICard title="Manual Review" value={totals.review} />
+        <KPICard
+          title="Total Prescreens"
+          value={totals.total}
+          variant="dark"
+          onClick={() => {
+            sessionStorage.setItem('prescreens_tab', 'all');
+            sessionStorage.removeItem('prescreens_bookedOnly');
+            onNavigate('prescreens');
+          }}
+        />
+
+        <KPICard
+          title="Safe to Book"
+          value={totals.safeToBook}
+          onClick={() => {
+            sessionStorage.setItem('prescreens_tab', 'safe');
+            sessionStorage.removeItem('prescreens_bookedOnly');
+            onNavigate('prescreens');
+          }}
+        />
+
+        <KPICard
+          title="Manual Review"
+          value={totals.review}
+          onClick={() => {
+            sessionStorage.setItem('prescreens_tab', 'review');
+            sessionStorage.removeItem('prescreens_bookedOnly');
+            onNavigate('prescreens');
+          }}
+        />
+
         <KPICard title="Drop-offs" value={totals.dropoffs} />
-        <KPICard title="Booked" value={totals.booked} />
+
+        <KPICard
+          title="Booked"
+          value={totals.booked}
+          onClick={() => {
+            sessionStorage.setItem('prescreens_tab', 'all');
+            sessionStorage.setItem('prescreens_bookedOnly', '1');
+            onNavigate('prescreens');
+          }}
+        />
       </div>
 
       {/* Main grid */}
@@ -329,7 +358,6 @@ const Dashboard: React.FC<Props> = ({
                   ]) || '—';
 
                 const eligUi = toUiEligibility(r);
-
                 const d = getBestTimestampDate(r);
 
                 return (
@@ -354,7 +382,9 @@ const Dashboard: React.FC<Props> = ({
                           <span>{String(treatment)}</span>
                         </p>
                       </div>
-                      <div className="text-[11px] text-uanco-400 whitespace-nowrap shrink-0 text-right">{formatShortDate(d)}</div>
+                      <div className="text-[11px] text-uanco-400 whitespace-nowrap shrink-0 text-right">
+                        {formatShortDate(d)}
+                      </div>
                     </div>
                   </button>
                 );
@@ -382,7 +412,8 @@ const Dashboard: React.FC<Props> = ({
             <div className="flex items-center justify-between">
               <span className="text-[12px] text-uanco-500">Drop-offs</span>
               <span className="text-sm font-medium text-uanco-900">
-                {totals.dropoffs}{dropOffRateUi > 0 ? ` (${dropOffRateUi}%)` : ''}
+                {totals.dropoffs}
+                {dropOffRateUi > 0 ? ` (${dropOffRateUi}%)` : ''}
               </span>
             </div>
 
@@ -399,9 +430,7 @@ const Dashboard: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="mt-6 text-[12px] text-uanco-500">
-            Click a client to view their full pre-screen summary.
-          </div>
+          <div className="mt-6 text-[12px] text-uanco-500">Click a client to view their full pre-screen summary.</div>
         </div>
       </div>
 
