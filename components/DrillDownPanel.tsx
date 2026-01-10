@@ -68,13 +68,10 @@ function buildReviewReasons(prescreen: any): string[] {
   ]);
 
   const a = toLower(allergies);
+  // Only flag allergies when the answer is explicitly Yes/true
   if (a === 'yes' || a === 'true') {
     if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
     else reasons.push('Allergy: Yes');
-  } else if (a === 'not sure' || a === 'unsure' || a === 'maybe') {
-    reasons.push('Allergy: Not sure');
-  } else if (allergies && a !== 'no' && a !== 'false') {
-    reasons.push(`Allergy: ${String(allergies).trim()}`);
   }
 
   // Pregnancy / breastfeeding
@@ -97,29 +94,24 @@ function buildReviewReasons(prescreen: any): string[] {
     reasons.push(`Pregnancy/Breastfeeding: ${String(preg).trim()}`);
   }
 
+  // Antibiotics (14d) — treat Yes as a review signal
+  const abx = getFirstNonEmpty(prescreen, [
+    'antibiotics_14d',
+    'Antibiotics_14d',
+    'Antibiotics 14d',
+    'Antibiotics (14d)',
+    'Antibiotics (14 days)',
+  ]);
+  const abxVal = toLower(abx);
+  if (abxVal === 'yes' || abxVal === 'true') {
+    reasons.push('Antibiotics (14d): Yes');
+  }
+
   const meds = getFirstNonEmpty(prescreen, ['medications', 'Medications']);
   asTextList(meds).forEach((m) => reasons.push(`Medication: ${m}`));
 
   const conditions = getFirstNonEmpty(prescreen, ['conditions', 'Medical Conditions', 'medical_conditions']);
   asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
-
-  // Antibiotics within 14 days
-  const abx = getFirstNonEmpty(prescreen, [
-    'antibiotics_14d',
-    'Antibiotics_14d',
-    'Antibiotics (14d)?',
-    'antibiotics14d',
-    'Antibiotics 14d',
-  ]);
-
-  const ab = toLower(abx);
-  if (ab === 'yes' || ab === 'true') {
-    reasons.push('Antibiotics (last 14 days): Yes');
-  } else if (ab === 'not sure' || ab === 'unsure' || ab === 'maybe') {
-    reasons.push('Antibiotics (last 14 days): Not sure');
-  } else if (abx && ab !== 'no' && ab !== 'false') {
-    reasons.push(`Antibiotics (last 14 days): ${String(abx).trim()}`);
-  }
 
   // Add booking intent and hesitation
   const intent = getFirstNonEmpty(prescreen, [
@@ -140,6 +132,41 @@ function buildReviewReasons(prescreen: any): string[] {
   if (hesitation) reasons.push(`Hesitation: ${String(hesitation).trim()}`);
 
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
+}
+// Helper to detect review triggers even if Airtable did not set Manual Review Flag
+function hasReviewTriggers(rec: any) {
+  // If review already completed locally, do not treat anything as a live trigger
+  const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
+  if (isTruthy(reviewComplete)) return false;
+
+  // Pregnancy/Breastfeeding: Yes or Not sure
+  const preg = getFirstNonEmpty(rec, [
+    'pregnant_breastfeeding',
+    'pregnant_breastfeedinging',
+    'Pregnant/Breastfeeding',
+    'Pregnant Breastfeeding',
+    'pregnant_breastfeed',
+  ]);
+  const p = toLower(preg);
+  const pregTrigger = p === 'yes' || p === 'true' || p === 'not sure' || p === 'unsure' || p === 'maybe';
+
+  // Allergies: Yes only ("Not sure" is not an option)
+  const allergies = getFirstNonEmpty(rec, ['allergies_yesno', 'allergies', 'Allergies']);
+  const a = toLower(allergies);
+  const allergyTrigger = a === 'yes' || a === 'true';
+
+  // Antibiotics (14d): Yes only
+  const abx = getFirstNonEmpty(rec, [
+    'antibiotics_14d',
+    'Antibiotics_14d',
+    'Antibiotics 14d',
+    'Antibiotics (14d)',
+    'Antibiotics (14 days)',
+  ]);
+  const abxVal = toLower(abx);
+  const abxTrigger = abxVal === 'yes' || abxVal === 'true';
+
+  return pregTrigger || allergyTrigger || abxTrigger;
 }
 
 function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
@@ -266,15 +293,24 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     ]) ||
     '';
 
-  // ✅ Effective eligibility: locked REVIEW unless review complete
+  // ✅ Effective eligibility: FAIL/UNSUITABLE always wins, otherwise REVIEW if manual flag or any triggers
   const eligibilityUi: 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' = useMemo(() => {
-    if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
-
     const rawElig =
       getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ??
       getFirstNonEmpty(record, ['eligibility', 'Eligibility']);
 
-    return toUiEligibility(rawElig);
+    const base = toUiEligibility(rawElig);
+
+    // Hard-stop: FAIL/UNSUITABLE always wins
+    if (base === 'UNSUITABLE') return 'UNSUITABLE';
+
+    // REVIEW when flagged-for-review (unless review completed)
+    if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
+
+    // REVIEW when any trigger answers indicate review is needed (unless review completed)
+    if (!localReviewComplete && hasReviewTriggers(raw)) return 'REVIEW';
+
+    return base;
   }, [raw, record, localReviewComplete]);
 
   const initials = name
@@ -376,7 +412,16 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         label: 'Medical conditions',
         value: getFirstNonEmpty(raw, ['conditions', 'Medical Conditions', 'medical_conditions']),
       },
-      { label: 'Antibiotics (14d)?', value: getFirstNonEmpty(raw, ['Antibiotics_14d', 'antibiotics_14d']) },
+      {
+        label: 'Antibiotics (14d)?',
+        value: getFirstNonEmpty(raw, [
+          'antibiotics_14d',
+          'Antibiotics_14d',
+          'Antibiotics 14d',
+          'Antibiotics (14d)',
+          'Antibiotics (14 days)',
+        ]),
+      },
     ];
 
     return rows.filter((r) => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
