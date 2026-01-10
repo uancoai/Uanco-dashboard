@@ -68,6 +68,7 @@ function buildReviewReasons(prescreen: any): string[] {
   ]);
 
   const a = toLower(allergies);
+  // Only flag allergies when the answer is explicitly Yes/true
   if (a === 'yes' || a === 'true') {
     if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
     else reasons.push('Allergy: Yes');
@@ -90,6 +91,7 @@ function buildReviewReasons(prescreen: any): string[] {
     reasons.push(`Pregnancy/Breastfeeding: ${String(preg).trim()}`);
   }
 
+  // Antibiotics (14d) — treat Yes as a review signal
   const abx = getFirstNonEmpty(prescreen, [
     'antibiotics_14d',
     'Antibiotics_14d',
@@ -122,11 +124,13 @@ function buildReviewReasons(prescreen: any): string[] {
 
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
-
+// Helper to detect review triggers even if Airtable did not set Manual Review Flag
 function hasReviewTriggers(rec: any) {
+  // If review already completed locally, do not treat anything as a live trigger
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
   if (isTruthy(reviewComplete)) return false;
 
+  // Pregnancy/Breastfeeding: Yes or Not sure
   const preg = getFirstNonEmpty(rec, [
     'pregnant_breastfeeding',
     'pregnant_breastfeedinging',
@@ -137,10 +141,12 @@ function hasReviewTriggers(rec: any) {
   const p = toLower(preg);
   const pregTrigger = p === 'yes' || p === 'true' || p === 'not sure' || p === 'unsure' || p === 'maybe';
 
+  // Allergies: Yes only ("Not sure" is not an option)
   const allergies = getFirstNonEmpty(rec, ['allergies_yesno', 'allergies', 'Allergies']);
   const a = toLower(allergies);
   const allergyTrigger = a === 'yes' || a === 'true';
 
+  // Antibiotics (14d): Yes only
   const abx = getFirstNonEmpty(rec, [
     'antibiotics_14d',
     'Antibiotics_14d',
@@ -324,14 +330,20 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     ]) ||
     '';
 
+  // ✅ Effective eligibility: FAIL/UNSUITABLE always wins, otherwise REVIEW if manual flag or any triggers
   const eligibilityUi: 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' = useMemo(() => {
     const rawElig =
       getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ?? getFirstNonEmpty(record, ['eligibility', 'Eligibility']);
 
     const base = toUiEligibility(rawElig);
 
+    // Hard-stop: FAIL/UNSUITABLE always wins
     if (base === 'UNSUITABLE') return 'UNSUITABLE';
+
+    // REVIEW when flagged-for-review (unless review completed)
     if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
+
+    // REVIEW when any trigger answers indicate review is needed (unless review completed)
     if (!localReviewComplete && hasReviewTriggers(raw)) return 'REVIEW';
 
     return base;
