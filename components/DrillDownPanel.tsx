@@ -71,8 +71,30 @@ function buildReviewReasons(prescreen: any): string[] {
   if (a === 'yes' || a === 'true') {
     if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
     else reasons.push('Allergy: Yes');
+  } else if (a === 'not sure' || a === 'unsure' || a === 'maybe') {
+    reasons.push('Allergy: Not sure');
   } else if (allergies && a !== 'no' && a !== 'false') {
     reasons.push(`Allergy: ${String(allergies).trim()}`);
+  }
+
+  // Pregnancy / breastfeeding
+  const preg = getFirstNonEmpty(prescreen, [
+    'pregnant_breastfeeding',
+    'pregnant_breastfeedinging',
+    'Pregnant/Breastfeeding',
+    'Pregnant Breastfeeding',
+    'pregnant_breastfeed',
+  ]);
+
+  const p = toLower(preg);
+  // Treat Yes or Not sure as a review signal
+  if (p === 'yes' || p === 'true') {
+    reasons.push('Pregnancy/Breastfeeding: Yes');
+  } else if (p === 'not sure' || p === 'unsure' || p === 'maybe') {
+    reasons.push('Pregnancy/Breastfeeding: Not sure');
+  } else if (preg && p !== 'no' && p !== 'false') {
+    // Any non-empty unexpected value should still be surfaced
+    reasons.push(`Pregnancy/Breastfeeding: ${String(preg).trim()}`);
   }
 
   const meds = getFirstNonEmpty(prescreen, ['medications', 'Medications']);
@@ -80,6 +102,24 @@ function buildReviewReasons(prescreen: any): string[] {
 
   const conditions = getFirstNonEmpty(prescreen, ['conditions', 'Medical Conditions', 'medical_conditions']);
   asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
+
+  // Antibiotics within 14 days
+  const abx = getFirstNonEmpty(prescreen, [
+    'antibiotics_14d',
+    'Antibiotics_14d',
+    'Antibiotics (14d)?',
+    'antibiotics14d',
+    'Antibiotics 14d',
+  ]);
+
+  const ab = toLower(abx);
+  if (ab === 'yes' || ab === 'true') {
+    reasons.push('Antibiotics (last 14 days): Yes');
+  } else if (ab === 'not sure' || ab === 'unsure' || ab === 'maybe') {
+    reasons.push('Antibiotics (last 14 days): Not sure');
+  } else if (abx && ab !== 'no' && ab !== 'false') {
+    reasons.push(`Antibiotics (last 14 days): ${String(abx).trim()}`);
+  }
 
   // Add booking intent and hesitation
   const intent = getFirstNonEmpty(prescreen, [
@@ -475,7 +515,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     <div>
                       <p className="font-medium text-slate-800">This record is marked for review.</p>
                       <p className="text-xs text-slate-500 mt-1">
-                        No structured reason fields were found yet. Once your Airtable fields are mapped, this will always show specifics like “Allergy: Shellfish”.
+                        No structured reason fields were found on this record. If a client answers Yes or Not sure to pregnancy or allergies then it will appear here.
                       </p>
                     </div>
                   </div>
