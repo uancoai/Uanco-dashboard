@@ -13,8 +13,9 @@ function getBearerToken(event: any) {
 
 /** ---------- Airtable helpers ---------- */
 function airtableHeaders() {
-  const pat = process.env.AIRTABLE_PAT;
-  if (!pat) throw new Error("Missing AIRTABLE_PAT");
+  // Support either env var name (older: AIRTABLE_PAT, newer: AIRTABLE_TOKEN)
+  const pat = process.env.AIRTABLE_PAT || process.env.AIRTABLE_TOKEN;
+  if (!pat) throw new Error("Missing AIRTABLE_PAT or AIRTABLE_TOKEN");
   return {
     Authorization: `Bearer ${pat}`,
     "Content-Type": "application/json",
@@ -166,6 +167,12 @@ export const handler: Handler = async (event) => {
       return safeDate(vb) - safeDate(va);
     });
     const dropOffs = dropRes.records;
+    // Canonical hard fails (true failed prescreens) live in DropOffs table
+    const canonicalFails = dropOffs.filter((r: any) => {
+      const outcome = String(r.outcome_type_calc ?? "").trim().toUpperCase();
+      const canon = String(r.canonical_record_calc ?? "").trim().toUpperCase();
+      return outcome === "FAIL" && canon === "YES";
+    });
     const questions = qRes.records;
     const treatments = tRes.records;
 
@@ -184,14 +191,20 @@ export const handler: Handler = async (event) => {
       else if (e === "review") review++;
     }
 
-    const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
+    // Drop-off rate includes all DropOffs (INCOMPLETE + FAIL) vs completed prescreens
     const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
 
     // ---- failReasons[] ----
-    const failReasonFieldCandidates = ["fail_reason", "Fail Reason", "Reason", "reason"];
+    const failReasonFieldCandidates = [
+      "fail_reason_category_calc",
+      "fail_reason_category",
+      "fail_reason",
+      "Fail Reason",
+      "Reason",
+      "reason",
+    ];
     const failReasonCounts = new Map<string, number>();
-    for (const r of preScreens) {
-      if (effectiveEligibility(r) !== "fail") continue;
+    for (const r of canonicalFails) {
       const reason =
         failReasonFieldCandidates
           .map((f) => r[f])
@@ -288,8 +301,12 @@ export const handler: Handler = async (event) => {
           totalPreScreens,
           passRate,
           dropOffRate,
-          hardFails: fail,
+          // Hard fails come from canonical DropOff records (true FAIL outcomes)
+          hardFails: canonicalFails.length,
+          // Temp fails are your REVIEW queue (manual_review_flag), which can later be cleared to PASS
           tempFails: review,
+          // Helpful for debugging / rollout
+          canonicalFailCount: canonicalFails.length,
           failReasons,
           funnelData,
           treatmentStats,
