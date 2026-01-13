@@ -190,6 +190,7 @@ export const handler: Handler = async (event) => {
       else if (e === "fail") fail++;
       else if (e === "review") review++;
     }
+    const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
 
     // Drop-off rate includes all DropOffs (INCOMPLETE + FAIL) vs completed prescreens
     const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
