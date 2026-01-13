@@ -133,6 +133,7 @@ function buildReviewReasons(prescreen: any): string[] {
 
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
+
 // Helper to detect review triggers even if Airtable did not set Manual Review Flag
 function hasReviewTriggers(rec: any) {
   // If review already completed locally, do not treat anything as a live trigger
@@ -167,6 +168,52 @@ function hasReviewTriggers(rec: any) {
   const abxTrigger = abxVal === 'yes' || abxVal === 'true';
 
   return pregTrigger || allergyTrigger || abxTrigger;
+}
+
+function buildUnsuitableSignals(rec: any): string[] {
+  const signals: string[] = [];
+
+  // Prefer Airtable calc category if present
+  const cat = String(
+    getFirstNonEmpty(rec, [
+      'fail_reason_category_calc',
+      'Fail Reason Category (Calc)',
+      'fail_reason_category',
+      'Fail Reason Category',
+    ]) ?? ''
+  )
+    .trim()
+    .toUpperCase();
+
+  if (cat === 'PREGNANT_BREASTFEEDING') signals.push('Pregnant / breastfeeding');
+  if (cat === 'ANTIBIOTICS') signals.push('Antibiotics in last 14 days');
+
+  // Also derive from raw answers (so it works even if category calc is missing)
+  const preg = getFirstNonEmpty(rec, [
+    'pregnant_breastfeeding',
+    'pregnant_breastfeedinging',
+    'Pregnant/Breastfeeding',
+    'Pregnant Breastfeeding',
+    'pregnant_breastfeed',
+  ]);
+  const p = toLower(preg);
+  if (p === 'yes' || p === 'true') {
+    if (!signals.includes('Pregnant / breastfeeding')) signals.push('Pregnant / breastfeeding');
+  }
+
+  const abx = getFirstNonEmpty(rec, [
+    'antibiotics_14d',
+    'Antibiotics_14d',
+    'Antibiotics 14d',
+    'Antibiotics (14d)',
+    'Antibiotics (14 days)',
+  ]);
+  const a = toLower(abx);
+  if (a === 'yes' || a === 'true' || a.includes('yes')) {
+    if (!signals.includes('Antibiotics in last 14 days')) signals.push('Antibiotics in last 14 days');
+  }
+
+  return Array.from(new Set(signals));
 }
 
 function toUiEligibility(raw: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' {
@@ -431,6 +478,13 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   const showReviewSignals = eligibilityUi === 'REVIEW' || reviewReasons.length > 0;
 
+  const unsuitableSignals = useMemo(() => {
+    if (eligibilityUi !== 'UNSUITABLE') return [];
+    return buildUnsuitableSignals(raw);
+  }, [eligibilityUi, raw]);
+
+  const showUnsuitableSignals = eligibilityUi === 'UNSUITABLE' && unsuitableSignals.length > 0;
+
   return (
     <>
       <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60]" onClick={onClose} />
@@ -526,6 +580,25 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
           {/* Body */}
           <div className="px-6 pb-6 space-y-4 overflow-auto">
+            {showUnsuitableSignals && (
+              <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                    Unsuitable signals
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">Why the client can’t book right now</p>
+                </div>
+
+                <div className="divide-y">
+                  {unsuitableSignals.map((s, idx) => (
+                    <div key={idx} className="px-4 py-3 flex items-start gap-3">
+                      <span className="mt-2 h-1.5 w-1.5 rounded-full bg-rose-500 shrink-0" />
+                      <span className="text-sm text-slate-800">{s}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {showReviewSignals && (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 bg-white/60 border-b border-slate-100 flex items-center justify-between gap-3">
@@ -586,7 +659,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-900">Mark review as complete</p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Only tick this if the client has been reviewed and it’s safe to proceed.
+                        Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.
                       </p>
                     </div>
                   </label>
