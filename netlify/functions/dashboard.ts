@@ -2,6 +2,8 @@ import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 
 const AIRTABLE_API = "https://api.airtable.com/v0";
+// Bump this string whenever you deploy backend changes, so the frontend/Network tab can confirm updates.
+const DASHBOARD_API_VERSION = "dashboard_v1_2026-01-13_recent-activity";
 
 /** ---------- Auth helpers ---------- */
 function getBearerToken(event: any) {
@@ -300,6 +302,30 @@ export const handler: Handler = async (event) => {
       .map(([treatment, count]) => ({ treatment, count }))
       .sort((a, b) => b.count - a.count);
 
+    // Recent clinical fails (FAIL + canonical YES)
+    const recentClinicalFails = canonicalFails.slice(0, 20);
+
+    // Merged recent activity feed (SAFE/REVIEW + clinical FAIL). This is an alias-friendly shape for older UIs.
+    const mergedRecentActivity = [
+      ...preScreensForUi.slice(0, 50).map((r: any) => ({ ...r, activity_kind: effectiveEligibility(r) || "unknown" })),
+      ...recentClinicalFails.map((r: any) => ({ ...r, activity_kind: "unsuitable" })),
+    ];
+
+    const activityDateKeys = [
+      "Created time",
+      "Created Time",
+      "created_at",
+      "submitted_at",
+      "Submitted At",
+      "Webhook Timestamp",
+      "webhook_timestamp",
+    ];
+    mergedRecentActivity.sort((a: any, b: any) => {
+      const va = activityDateKeys.map((k) => a[k]).find((x) => x != null && String(x).trim() !== "");
+      const vb = activityDateKeys.map((k) => b[k]).find((x) => x != null && String(x).trim() !== "");
+      return safeDate(vb) - safeDate(va);
+    });
+
     // Debug info only when ?debug=1
     const debugInfo = debug
       ? {
@@ -335,6 +361,7 @@ export const handler: Handler = async (event) => {
         dropOffs,
         questions,
         treatments,
+        apiVersion: DASHBOARD_API_VERSION,
         metrics: {
           totalPreScreens,
           passRate,
@@ -352,6 +379,10 @@ export const handler: Handler = async (event) => {
           funnelData,
           treatmentStats,
         },
+        // Backwards-compatible aliases (in case the frontend expects a different key)
+        activity: mergedRecentActivity.slice(0, 20),
+        recent: mergedRecentActivity.slice(0, 20),
+        recent_activity: mergedRecentActivity.slice(0, 20),
         ...(debugInfo ? { debug: debugInfo } : {}),
       }),
     };
