@@ -383,38 +383,71 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
       setSavingReview(true);
 
       const currentElig = toLower(getFirstNonEmpty(raw, ['eligibility', 'Eligibility']));
-      const updates: any = {
-        // ✅ mark complete
-        review_complete: true,
-        reviewComplete: true,
-        'Review Complete': true,
 
-        // ✅ clear the flags so overrides stop everywhere
-        'Manual Review Flag': false,
-        manual_review_flag: false,
-        'Flagged for Review': false,
-        flagged_for_review: false,
-        manual_review: false,
-        'Manual Review': false,
-        review_flag: false,
-        'Review Flag': false,
-        flagged: false,
-        'Flagged': false,
-      };
+      if (eligibilityUi === 'UNSUITABLE') {
+        // --- Begin replacement for UNSUITABLE branch ---
+        const nowIso = new Date().toISOString();
 
-      // ✅ if eligibility itself was literally "review", flip it to "pass"
-      if (currentElig === 'review') {
-        updates.eligibility = 'pass';
-        updates.Eligibility = 'pass';
+        // Always set the core flag
+        const updates: any = {
+          cleared_for_future_booking: true,
+        };
+
+        // Only attempt optional fields if the base appears to have them already
+        // (prevents Airtable rejecting unknown field names)
+        const hasClearedAt = getFirstNonEmpty(raw, ['cleared_at', 'Cleared At']) !== null;
+        const hasClearedBy = getFirstNonEmpty(raw, ['cleared_by', 'Cleared By']) !== null;
+        const hasClearanceNote = getFirstNonEmpty(raw, ['clearance_note', 'Clearance Note']) !== null;
+
+        if (hasClearedAt) updates.cleared_at = nowIso;
+        if (hasClearedBy) updates.cleared_by = 'Practitioner';
+        if (hasClearanceNote) updates.clearance_note = '';
+
+        try {
+          await onUpdateRecord(record.id, updates);
+        } catch (err) {
+          // Fallback: if Airtable still rejects unknown optional fields, retry minimal payload
+          console.warn('[markReviewComplete] clearance update failed, retrying minimal payload', err);
+          await onUpdateRecord(record.id, { cleared_for_future_booking: true });
+        }
+        setConfirmReviewOpen(false);
+        setReviewCompleteChecked(false);
+        setLocalReviewComplete(true);
+      } else {
+        // --- Original branch for non-UNSUITABLE ---
+        const updates: any = {
+          // ✅ mark complete
+          review_complete: true,
+          reviewComplete: true,
+          'Review Complete': true,
+
+          // ✅ clear the flags so overrides stop everywhere
+          'Manual Review Flag': false,
+          manual_review_flag: false,
+          'Flagged for Review': false,
+          flagged_for_review: false,
+          manual_review: false,
+          'Manual Review': false,
+          review_flag: false,
+          'Review Flag': false,
+          flagged: false,
+          'Flagged': false,
+        };
+
+        // ✅ if eligibility itself was literally "review", flip it to "pass"
+        if (currentElig === 'review') {
+          updates.eligibility = 'pass';
+          updates.Eligibility = 'pass';
+        }
+
+        // optimistic local UI flip
+        setLocalReviewComplete(true);
+
+        await onUpdateRecord(record.id, updates);
+
+        setConfirmReviewOpen(false);
+        setReviewCompleteChecked(false);
       }
-
-      // optimistic local UI flip
-      setLocalReviewComplete(true);
-
-      await onUpdateRecord(record.id, updates);
-
-      setConfirmReviewOpen(false);
-      setReviewCompleteChecked(false);
     } catch (e) {
       // rollback UI if save failed
       setLocalReviewComplete(false);
