@@ -10,7 +10,7 @@ type Props = {
   onNavigate?: (view: string) => void;
 };
 
-type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
+type Tab = 'all' | 'review' | 'unsuitable';
 
 function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
@@ -60,7 +60,7 @@ function isBookedUi(rec: any) {
 }
 
 /**
- * Airtable schema truth (from your AI output):
+ * Airtable schema truth:
  * - eligibility: Pass | Fail | Manual Review
  * - manual_review_flag: single select → "Yes" means review
  * - hard stop: eligibility = Fail
@@ -134,14 +134,13 @@ function normalizeForPanel(r: any) {
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
   const bookingStatus: 'Booked' | 'Pending' = toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
 
-  // ✅ IMPORTANT: include Airtable record-level createdTime as first fallback
   const ts =
     getFirstNonEmpty(r, [
-      'Auto Created Time', // ✅ NEW Airtable formula field: CREATED_TIME()
-      'auto_created_time', // optional snake_case fallback
-      'createdTime', // Airtable record meta timestamp (if present)
-      'Created time', // existing Airtable date field (if you ever populate it)
-      'Created Time', // legacy
+      'Auto Created Time',
+      'auto_created_time',
+      'createdTime',
+      'Created time',
+      'Created Time',
       'created_at',
       'Created',
       'submitted_at',
@@ -164,7 +163,7 @@ function normalizeForPanel(r: any) {
   };
 }
 
-const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord, onNavigate }) => {
+const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord }) => {
   const [tab, setTab] = useState<Tab>('all');
   const [bookedOnly, setBookedOnly] = useState(false);
   const [q, setQ] = useState('');
@@ -172,6 +171,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
   const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
 
+  // UNSUITABLE comes from dropOffs canonical FAILs
   const unsuitableFromDropOffs = useMemo(() => {
     return (dropOffs || [])
       .filter((r: any) => isCanonical(r))
@@ -179,13 +179,22 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
       .map((r: any) => normalizeForPanel({ ...r, __source: 'dropoff' }));
   }, [dropOffs]);
 
-useEffect(() => {
+  // REVIEW + UNSUITABLE coming from PreScreens table (if any exist there)
+  const reviewFromPreScreens = useMemo(() => {
+    return (normalized || []).filter((r: any) => toLower(r?.eligibility) === 'review');
+  }, [normalized]);
+
+  const unsuitableLocal = useMemo(() => {
+    return (normalized || []).filter((r: any) => toLower(r?.eligibility) === 'unsuitable');
+  }, [normalized]);
+
+  useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const tabParam = (url.searchParams.get('tab') || url.searchParams.get('eligibility') || '').toLowerCase();
       const bookedParam = (url.searchParams.get('booked') || '').toLowerCase();
 
-      if (tabParam === 'safe' || tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
+      if (tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
         setTab(tabParam as Tab);
       }
 
@@ -200,12 +209,7 @@ useEffect(() => {
     const storedTab = sessionStorage.getItem('prescreens_tab');
     const storedBooked = sessionStorage.getItem('prescreens_booked');
 
-    if (
-      storedTab === 'safe' ||
-      storedTab === 'review' ||
-      storedTab === 'unsuitable' ||
-      storedTab === 'all'
-    ) {
+    if (storedTab === 'review' || storedTab === 'unsuitable' || storedTab === 'all') {
       setTab(storedTab as Tab);
     }
 
@@ -215,42 +219,32 @@ useEffect(() => {
 
     sessionStorage.removeItem('prescreens_tab');
     sessionStorage.removeItem('prescreens_booked');
-    // run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Counts for THIS page: only Review + Unsuitable (no Safe)
   const counts = useMemo(() => {
-    let safe = 0,
-      review = 0,
-      unsuitable = 0;
+    const review = reviewFromPreScreens.length;
+    const unsuitable = unsuitableLocal.length + unsuitableFromDropOffs.length;
+    const all = review + unsuitable;
 
-    for (const r of normalized) {
-      const e = toLower(r?.eligibility);
-      if (e === 'safe') safe++;
-      else if (e === 'review') review++;
-      else if (e === 'unsuitable') unsuitable++;
-    }
+    return { all, review, unsuitable };
+  }, [reviewFromPreScreens, unsuitableLocal, unsuitableFromDropOffs]);
 
-    // Add unsuitable from dropOffs (canonical FAIL)
-    unsuitable += unsuitableFromDropOffs.length;
-
-    return { all: normalized.length + unsuitableFromDropOffs.length, safe, review, unsuitable };
-  }, [normalized, unsuitableFromDropOffs]);
-
-  const bookedCount = useMemo(() => normalized.filter(isBookedUi).length, [normalized]);
+  // Booked only makes sense for REVIEW list (dropOff unsuitable shouldn't toggle booking)
+  const bookedCount = useMemo(() => reviewFromPreScreens.filter(isBookedUi).length, [reviewFromPreScreens]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
 
-    const unsuitableLocal = normalized.filter((r) => toLower(r?.eligibility) === 'unsuitable');
-    const mergedAll = [...normalized, ...unsuitableFromDropOffs];
+    const mergedUnsuitable = [...unsuitableLocal, ...unsuitableFromDropOffs];
 
     let list =
       tab === 'all'
-        ? mergedAll
+        ? [...reviewFromPreScreens, ...mergedUnsuitable]
         : tab === 'unsuitable'
-        ? [...unsuitableLocal, ...unsuitableFromDropOffs]
-        : normalized.filter((r) => toLower(r?.eligibility) === tab);
+        ? mergedUnsuitable
+        : reviewFromPreScreens;
 
     if (bookedOnly) {
       list = list.filter((r) => isBookedUi(r));
@@ -273,7 +267,7 @@ useEffect(() => {
     });
 
     return list;
-  }, [normalized, tab, q, bookedOnly]);
+  }, [reviewFromPreScreens, unsuitableLocal, unsuitableFromDropOffs, tab, q, bookedOnly]);
 
   const toggleBooking = (r: any) => {
     if (!onUpdateRecord) return;
@@ -287,9 +281,8 @@ useEffect(() => {
     <div className="space-y-6">
       <div className="flex items-end justify-between">
         <div className="min-w-0">
-
           <h2 className="text-3xl font-serif">Pre-Screens</h2>
-          <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
+          <p className="text-[11px] text-uanco-400 mt-1">Review and manage unsuitable clients.</p>
         </div>
       </div>
 
@@ -305,17 +298,6 @@ useEffect(() => {
             }`}
           >
             All ({counts.all})
-          </button>
-
-          <button
-            onClick={() => setTab('safe')}
-            className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
-              tab === 'safe'
-                ? 'bg-uanco-900 text-white border-uanco-900'
-                : 'bg-white border-uanco-100 text-uanco-500 hover:bg-uanco-50'
-            }`}
-          >
-            Safe ({counts.safe})
           </button>
 
           <button
@@ -339,6 +321,7 @@ useEffect(() => {
           >
             Unsuitable ({counts.unsuitable})
           </button>
+
           <button
             onClick={() => setBookedOnly((v) => !v)}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
@@ -416,7 +399,12 @@ useEffect(() => {
                           className={`inline-flex items-center text-[10px] font-bold uppercase px-2 py-1 rounded-full border transition-colors hover:opacity-90 ${bookingBadgeClasses(
                             r.booking_status
                           )}`}
-                          title="Click to toggle Booked / Pending"
+                          title={
+                            r.__source === 'dropoff'
+                              ? 'Booking toggle disabled for unsuitable drop-off records'
+                              : 'Click to toggle Booked / Pending'
+                          }
+                          disabled={r.__source === 'dropoff'}
                         >
                           {r.booking_status === 'Booked' ? 'Booked' : 'Pending'}
                         </button>
@@ -464,7 +452,12 @@ useEffect(() => {
                         className={`inline-flex items-center text-[10px] font-bold uppercase px-2 py-1 rounded-full border transition-colors hover:opacity-90 ${bookingBadgeClasses(
                           r.booking_status
                         )}`}
-                        title="Click to toggle Booked / Pending"
+                        title={
+                          r.__source === 'dropoff'
+                            ? 'Booking toggle disabled for unsuitable drop-off records'
+                            : 'Click to toggle Booked / Pending'
+                        }
+                        disabled={r.__source === 'dropoff'}
                       >
                         {r.booking_status === 'Booked' ? 'Booked' : 'Pending'}
                       </button>
