@@ -35,6 +35,21 @@ function parseDateMaybe(v: any) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function isTruthy(v: any) {
+  const s = toLower(v);
+  return v === true || s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+function getOutcomeType(rec: any) {
+  return String(getFirstNonEmpty(rec, ['outcome_type_calc', 'Outcome Type', 'outcome_type']) ?? '')
+    .trim()
+    .toUpperCase();
+}
+
+function isCanonical(rec: any) {
+  return isTruthy(getFirstNonEmpty(rec, ['canonical_record_calc', 'Canonical Record', 'canonical_record']));
+}
+
 function formatShortDate(d: Date | null) {
   if (!d) return '';
   return d.toLocaleString(undefined, { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -114,6 +129,7 @@ function normalizeForPanel(r: any) {
     getFirstNonEmpty(r, ['treatment_selected', 'Treatment', 'interested_treatments', 'Interested Treatments']) || '';
 
   const eligibilityUi = effectiveUiEligibility(r);
+  const source = getFirstNonEmpty(r, ['__source']) || 'prescreen';
 
   const bookingRaw = getFirstNonEmpty(r, ['booking_status', 'Booking Status', 'Booked', 'booked']);
   const bookingStatus: 'Booked' | 'Pending' = toLower(bookingRaw) === 'booked' ? 'Booked' : 'Pending';
@@ -142,6 +158,7 @@ function normalizeForPanel(r: any) {
     treatment_selected: treatment,
     eligibility: eligibilityUi,
     booking_status: bookingStatus,
+    __source: source,
     __raw: r,
     __ts: ts,
   };
@@ -154,6 +171,13 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
   const [selected, setSelected] = useState<any | null>(null);
 
   const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
+
+  const unsuitableFromDropOffs = useMemo(() => {
+    return (dropOffs || [])
+      .filter((r: any) => isCanonical(r))
+      .filter((r: any) => getOutcomeType(r) === 'FAIL')
+      .map((r: any) => normalizeForPanel({ ...r, __source: 'dropoff' }));
+  }, [dropOffs]);
 
 useEffect(() => {
     try {
@@ -207,18 +231,26 @@ useEffect(() => {
       else if (e === 'unsuitable') unsuitable++;
     }
 
-    return { all: normalized.length, safe, review, unsuitable };
-  }, [normalized]);
+    // Add unsuitable from dropOffs (canonical FAIL)
+    unsuitable += unsuitableFromDropOffs.length;
+
+    return { all: normalized.length + unsuitableFromDropOffs.length, safe, review, unsuitable };
+  }, [normalized, unsuitableFromDropOffs]);
 
   const bookedCount = useMemo(() => normalized.filter(isBookedUi).length, [normalized]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    let list = [...normalized];
 
-    if (tab !== 'all') {
-      list = list.filter((r) => toLower(r?.eligibility) === tab);
-    }
+    const unsuitableLocal = normalized.filter((r) => toLower(r?.eligibility) === 'unsuitable');
+    const mergedAll = [...normalized, ...unsuitableFromDropOffs];
+
+    let list =
+      tab === 'all'
+        ? mergedAll
+        : tab === 'unsuitable'
+        ? [...unsuitableLocal, ...unsuitableFromDropOffs]
+        : normalized.filter((r) => toLower(r?.eligibility) === tab);
 
     if (bookedOnly) {
       list = list.filter((r) => isBookedUi(r));
@@ -245,6 +277,8 @@ useEffect(() => {
 
   const toggleBooking = (r: any) => {
     if (!onUpdateRecord) return;
+    if (r.__source === 'dropoff') return;
+
     const next: 'Booked' | 'Pending' = r.booking_status === 'Booked' ? 'Pending' : 'Booked';
     onUpdateRecord(r.id, { booking_status: next });
   };
