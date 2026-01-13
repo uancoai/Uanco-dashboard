@@ -54,6 +54,21 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
 }
 
 /** ---------- Normalisers ---------- */
+function friendlyFailReason(codeOrText: any): string {
+  const raw = String(codeOrText ?? "").trim();
+  const code = raw.toUpperCase();
+
+  const map: Record<string, string> = {
+    PREGNANT_BREASTFEEDING: "Pregnant or breastfeeding",
+    ANTIBIOTICS: "Antibiotics in last 14 days",
+    ALLERGIES: "Allergies declared",
+    AGE: "Underage / age not verified",
+    OTHER_FAIL: "Not suitable / stopped / policy not accepted",
+  };
+
+  return map[code] || raw || "Unspecified";
+}
+
 function normElig(v: any) {
   const s = String(v || "").trim().toLowerCase();
   if (s === "pass") return "pass";
@@ -173,18 +188,26 @@ export const handler: Handler = async (event) => {
       const canon = String(r.canonical_record_calc ?? "").trim().toUpperCase();
       return outcome === "FAIL" && canon === "YES";
     });
+    // Canonical incompletes (true drop-offs) live in DropOffs table
+    const canonicalIncompletes = dropOffs.filter((r: any) => {
+      const outcome = String(r.outcome_type_calc ?? "").trim().toUpperCase();
+      const canon = String(r.canonical_record_calc ?? "").trim().toUpperCase();
+      return outcome === "INCOMPLETE" && canon === "YES";
+    });
     const questions = qRes.records;
     const treatments = tRes.records;
 
     // 6) Metrics (computed)
-    const totalPreScreens = preScreens.length;
+    // Completed prescreens for the dashboard should be PASS + REVIEW only (no FAILs)
+    const preScreensForUi = preScreens.filter((r: any) => effectiveEligibility(r) !== "fail");
+    const totalPreScreens = preScreensForUi.length;
 
     // Compute effective status using the same override logic as the UI
     let pass = 0;
     let fail = 0;
     let review = 0;
 
-    for (const r of preScreens) {
+    for (const r of preScreensForUi) {
       const e = effectiveEligibility(r);
       if (e === "pass") pass++;
       else if (e === "fail") fail++;
@@ -192,8 +215,8 @@ export const handler: Handler = async (event) => {
     }
     const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
 
-    // Drop-off rate includes all DropOffs (INCOMPLETE + FAIL) vs completed prescreens
-    const dropOffRate = totalPreScreens ? Math.round((dropOffs.length / totalPreScreens) * 100) : 0;
+    // Drop-off rate should reflect INCOMPLETE-only vs completed prescreens
+    const dropOffRate = totalPreScreens ? Math.round((canonicalIncompletes.length / totalPreScreens) * 100) : 0;
 
     // ---- failReasons[] ----
     const failReasonFieldCandidates = [
@@ -211,7 +234,7 @@ export const handler: Handler = async (event) => {
           .map((f) => r[f])
           .find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unspecified";
 
-      const key = String(reason).trim();
+      const key = friendlyFailReason(reason);
       failReasonCounts.set(key, (failReasonCounts.get(key) || 0) + 1);
     }
     const failReasons = Array.from(failReasonCounts.entries())
@@ -221,7 +244,7 @@ export const handler: Handler = async (event) => {
     // ---- funnelData[] ----
     const stepFieldCandidates = ["dropoff_step", "Drop-off Step", "Step", "step", "Last Step", "last_step"];
     const stepCounts = new Map<string, number>();
-    for (const d of dropOffs) {
+    for (const d of canonicalIncompletes) {
       const step =
         stepFieldCandidates
           .map((f) => d[f])
@@ -294,7 +317,7 @@ export const handler: Handler = async (event) => {
         Expires: "0",
       },
       body: JSON.stringify({
-        preScreens,
+        preScreens: preScreensForUi,
         dropOffs,
         questions,
         treatments,
@@ -302,6 +325,9 @@ export const handler: Handler = async (event) => {
           totalPreScreens,
           passRate,
           dropOffRate,
+          // Card-ready counts
+          unsuitableCount: canonicalFails.length, // FAIL + canonical YES
+          dropOffsCount: canonicalIncompletes.length, // INCOMPLETE + canonical YES
           // Hard fails come from canonical DropOff records (true FAIL outcomes)
           hardFails: canonicalFails.length,
           // Temp fails are your REVIEW queue (manual_review_flag), which can later be cleared to PASS
