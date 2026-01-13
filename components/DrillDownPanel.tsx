@@ -476,7 +476,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
 
-  const showReviewSignals = eligibilityUi === 'REVIEW' || reviewReasons.length > 0;
+  // Only show the Review Signals panel for REVIEW clients (do not show it just because reasons exist)
+  const showReviewSignals = eligibilityUi === 'REVIEW';
 
   const unsuitableSignals = useMemo(() => {
     if (eligibilityUi !== 'UNSUITABLE') return [];
