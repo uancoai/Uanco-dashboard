@@ -60,6 +60,30 @@ function isBookedUi(rec: any) {
 }
 
 /**
+ * ✅ NEW: Detect "incomplete-looking" ghost records (e.g. Visitor #5049..., no email/phone, no clinical signals)
+ * These should NOT appear in Pre-Screens list.
+ */
+function isIncompleteLike(rec: any) {
+  const email = getFirstNonEmpty(rec, ['email', 'Email']);
+  const phone = getFirstNonEmpty(rec, ['phone', 'Phone', 'mobile', 'Mobile']);
+
+  const pregnant = getFirstNonEmpty(rec, ['pregnant_breastfeeding', 'pregnant_breastfeeding_calc']);
+  const antibiotics = getFirstNonEmpty(rec, ['antibiotics_14d', 'antibiotics_14d_calc']);
+  const allergiesYesNo = getFirstNonEmpty(rec, ['allergies_yesno', 'allergies_yesno_calc']);
+  const allergiesDetails = getFirstNonEmpty(rec, ['allergies_details']);
+
+  const hasContact = String(email ?? '').trim() !== '' || String(phone ?? '').trim() !== '';
+  const hasClinicalSignals =
+    String(pregnant ?? '').trim() !== '' ||
+    String(antibiotics ?? '').trim() !== '' ||
+    String(allergiesYesNo ?? '').trim() !== '' ||
+    String(allergiesDetails ?? '').trim() !== '';
+
+  // No contact + no clinical signals = basically incomplete
+  return !hasContact && !hasClinicalSignals;
+}
+
+/**
  * Airtable schema truth:
  * - eligibility: Pass | Fail | Manual Review
  * - manual_review_flag: single select → "Yes" means review
@@ -169,7 +193,12 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<any | null>(null);
 
-  const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
+  // ✅ CHANGED: filter out incomplete-like ghosts BEFORE normalizing
+  const normalized = useMemo(() => {
+    return (records || [])
+      .filter((r: any) => !isIncompleteLike(r))
+      .map(normalizeForPanel);
+  }, [records]);
 
   // UNSUITABLE comes from dropOffs canonical FAILs only (excludes incomplete)
   const unsuitableFromDropOffs = useMemo(() => {
