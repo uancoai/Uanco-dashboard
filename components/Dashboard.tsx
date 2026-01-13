@@ -224,8 +224,9 @@ const Dashboard: React.FC<Props> = ({
   };
 
   const totals = useMemo(() => {
-    // ✅ Single source of truth: what the UI is actually rendering
-    const total = preScreens.length;
+    // Total prescreens KPI should reflect Safe + Manual Review + Unsuitable
+    // (Unsuitable is derived from canonical FAIL dropOffs or backend metric)
+    let total = 0;
 
     const reviewCount = preScreens.filter((r: any) => toUiEligibility(r) === 'REVIEW').length;
     const unsafeCount = preScreens.filter((r: any) => toUiEligibility(r) === 'UNSUITABLE').length;
@@ -244,6 +245,8 @@ const Dashboard: React.FC<Props> = ({
       Number.isFinite(Number(metrics?.dropOffsCount)) && Number(metrics?.dropOffsCount) >= 0
         ? Number(metrics?.dropOffsCount)
         : dropOffs.filter((r: any) => isCanonical(r) && getOutcomeType(r) === 'INCOMPLETE').length;
+
+    total = safeCount + reviewCount + unsuitable;
 
     return {
       total,
@@ -421,7 +424,26 @@ const Dashboard: React.FC<Props> = ({
           <KPICard title="Manual Review" value={totals.review} />
         </div>
 
-        <div className="w-full">
+        <div
+          role="button"
+          tabIndex={0}
+          className="w-full cursor-pointer"
+          onClick={() => {
+            sessionStorage.setItem('prescreens_tab', 'unsuitable');
+            sessionStorage.removeItem('prescreens_bookedOnly');
+            onNavigate('prescreens');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sessionStorage.setItem('prescreens_tab', 'unsuitable');
+              sessionStorage.removeItem('prescreens_bookedOnly');
+              onNavigate('prescreens');
+            }
+          }}
+          aria-label="View unsuitable prescreens"
+          title="View unsuitable"
+        >
           <KPICard title="Unsuitable" value={totals.unsuitable} />
         </div>
 
