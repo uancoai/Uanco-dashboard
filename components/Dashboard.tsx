@@ -155,11 +155,56 @@ function getHesitationReason(rec: any) {
   ]);
 }
 
+function hasUsefulClientInfo(r: any) {
+  const name = String(getFirstNonEmpty(r, ['Name', 'name']) ?? '').trim();
+  const email = String(getFirstNonEmpty(r, ['Email', 'email']) ?? '').trim();
+  const phone = String(getFirstNonEmpty(r, ['Phone', 'phone']) ?? '').trim();
+
+  const nameLooksAnonymous = /^visitor\s*#\d+/i.test(name);
+  return (!nameLooksAnonymous && name.length >= 2) || email.length > 3 || phone.length > 5;
+}
+
+function getFailCategory(rec: any) {
+  return String(
+    getFirstNonEmpty(rec, [
+      'fail_reason_category_calc',
+      'fail_reason_category',
+      'Fail Reason Category',
+      'Fail Reason Category (Calc)',
+      'fail_reason',
+      'Fail Reason',
+    ]) ?? ''
+  )
+    .trim()
+    .toUpperCase();
+}
+
+function getOutcomeType(rec: any) {
+  return String(getFirstNonEmpty(rec, ['outcome_type_calc', 'Outcome Type', 'outcome_type']) ?? '')
+    .trim()
+    .toUpperCase();
+}
+
+function isCanonical(rec: any) {
+  return isTruthy(getFirstNonEmpty(rec, ['canonical_record_calc', 'Canonical Record', 'canonical_record']));
+}
+
+function isClinicalHardFail(rec: any) {
+  const cat = getFailCategory(rec);
+  return cat === 'PREGNANT_BREASTFEEDING' || cat === 'ANTIBIOTICS';
+}
+
+function isPolicyOrUnder18Fail(rec: any) {
+  const cat = getFailCategory(rec);
+  return cat === 'POLICY_NOT_ACCEPTED' || cat === 'UNDER_18' || cat === 'AGE';
+}
+
 const Dashboard: React.FC<Props> = ({
   clinicId,
   clinicName,
   onNavigate,
   preScreens = [],
+  dropOffs = [],
   questions = [],
   metrics = {},
   onUpdateRecord,
@@ -188,43 +233,68 @@ const Dashboard: React.FC<Props> = ({
 
     const booked = preScreens.filter(isBooked).length;
 
-    // Dropoffs: prefer explicit count if backend provides it, else estimate from rate
-    const dropOffRate = Number(metrics?.dropOffRate ?? 0);
-    const dropoffs =
-      Number.isFinite(Number(metrics?.dropoffs ?? metrics?.dropOffs ?? metrics?.dropOffsCount))
-        ? Number(metrics?.dropoffs ?? metrics?.dropOffs ?? metrics?.dropOffsCount)
-        : Number.isFinite(dropOffRate)
-        ? Math.round(total * (dropOffRate / 100))
-        : 0;
+    // Unsuitable: prefer backend metric, else derive from canonical FAIL dropOffs (clinical hard fails + policy/age fails)
+    const unsuitable =
+      Number.isFinite(Number(metrics?.unsuitableCount)) && Number(metrics?.unsuitableCount) >= 0
+        ? Number(metrics?.unsuitableCount)
+        : dropOffs.filter((r: any) => isCanonical(r) && getOutcomeType(r) === 'FAIL' && (isClinicalHardFail(r) || isPolicyOrUnder18Fail(r))).length;
+
+    // Incomplete (true drop-offs): prefer backend metric, else derive from canonical INCOMPLETE dropOffs
+    const incomplete =
+      Number.isFinite(Number(metrics?.dropOffsCount)) && Number(metrics?.dropOffsCount) >= 0
+        ? Number(metrics?.dropOffsCount)
+        : dropOffs.filter((r: any) => isCanonical(r) && getOutcomeType(r) === 'INCOMPLETE').length;
 
     return {
       total,
       safeToBook: safeCount,
       review: reviewCount,
-      dropoffs,
+      unsuitable,
+      incomplete,
       booked,
-      unsafe: unsafeCount,
     };
-  }, [metrics, preScreens]);
+  }, [metrics, preScreens, dropOffs]);
 
   const recent = useMemo(() => {
-    const copy = [...preScreens];
+    const safeAndReview = [...preScreens];
 
-    copy.sort((a, b) => {
+    safeAndReview.sort((a, b) => {
       const da = getBestTimestampDate(a);
       const db = getBestTimestampDate(b);
       return (db?.getTime() || 0) - (da?.getTime() || 0);
     });
 
-    return copy.slice(0, 8);
-  }, [preScreens]);
+    // Only show clinical hard fails in Recent Activity, and only when there is useful client info.
+    // Policy/under-18 fails are counted in KPIs but not shown here (no point without client info).
+    const clinicalFails = dropOffs
+      .filter((r: any) => isCanonical(r))
+      .filter((r: any) => getOutcomeType(r) === 'FAIL')
+      .filter((r: any) => isClinicalHardFail(r))
+      .filter((r: any) => hasUsefulClientInfo(r))
+      .sort((a: any, b: any) => {
+        const da = getBestTimestampDate(a);
+        const db = getBestTimestampDate(b);
+        return (db?.getTime() || 0) - (da?.getTime() || 0);
+      });
+
+    const merged = [...clinicalFails, ...safeAndReview];
+
+    // Sort merged newest-first
+    merged.sort((a: any, b: any) => {
+      const da = getBestTimestampDate(a);
+      const db = getBestTimestampDate(b);
+      return (db?.getTime() || 0) - (da?.getTime() || 0);
+    });
+
+    return merged.slice(0, 8);
+  }, [preScreens, dropOffs]);
 
   const dropOffRateUi = useMemo(() => {
     const total = preScreens.length;
     if (!total) return 0;
-    const dropoffs = Number(totals.dropoffs ?? 0);
+    const dropoffs = Number(totals.incomplete ?? 0);
     return Math.round((dropoffs / total) * 100);
-  }, [preScreens, totals.dropoffs]);
+  }, [preScreens, totals.incomplete]);
 
   const bookingSignals = useMemo(() => {
     const reasons: Record<string, number> = {};
@@ -352,7 +422,7 @@ const Dashboard: React.FC<Props> = ({
         </div>
 
         <div className="w-full">
-          <KPICard title="Drop-offs" value={totals.dropoffs} />
+          <KPICard title="Unsuitable" value={totals.unsuitable} />
         </div>
 
         <div
@@ -463,9 +533,9 @@ const Dashboard: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Drop-offs</span>
+              <span className="text-[12px] text-uanco-500">Incomplete</span>
               <span className="text-sm font-medium text-uanco-900">
-                {totals.dropoffs}
+                {totals.incomplete}
                 {dropOffRateUi > 0 ? ` (${dropOffRateUi}%)` : ''}
               </span>
             </div>
