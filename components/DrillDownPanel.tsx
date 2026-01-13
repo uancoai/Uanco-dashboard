@@ -486,6 +486,19 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   const showUnsuitableSignals = eligibilityUi === 'UNSUITABLE' && unsuitableSignals.length > 0;
 
+  const isUnsuitable = eligibilityUi === 'UNSUITABLE';
+
+  // Show the action checkbox for REVIEW clients, and for UNSUITABLE clients only when we have clinical signals
+  const showClearancePanel = showReviewSignals || showUnsuitableSignals;
+
+  const clearanceTitle = isUnsuitable ? 'Mark as cleared for future booking' : 'Mark review as complete';
+
+  const clearanceHelper = isUnsuitable
+    ? "Only tick this if you’ve reviewed the client and you’re happy to book them in future (e.g. once pregnancy/breastfeeding or the antibiotics window has passed). If they can’t book online, you can book them manually."
+    : "Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.";
+
+  const clearanceButtonLabel = isUnsuitable ? 'Confirm clearance' : 'Confirm review complete';
+
   return (
     <>
       <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60]" onClick={onClose} />
@@ -648,8 +661,21 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     ))}
                   </div>
                 )}
+              </div>
+            )}
 
-                <div className="px-4 py-4 border-t border-slate-100 bg-white">
+            {showClearancePanel && (
+              <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
+                <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                    Practitioner action
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {isUnsuitable ? 'Clear for future booking if appropriate' : 'Complete review and clear flags'}
+                  </p>
+                </div>
+
+                <div className="px-4 py-4 bg-white">
                   <label className="flex items-start gap-3 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -658,10 +684,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                       onChange={(e) => setReviewCompleteChecked(e.target.checked)}
                     />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-slate-900">Mark review as complete</p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.
-                      </p>
+                      <p className="text-sm font-medium text-slate-900">{clearanceTitle}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{clearanceHelper}</p>
                     </div>
                   </label>
 
@@ -675,7 +699,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                         : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    {savingReview ? 'Saving…' : 'Confirm review complete'} <ChevronRight size={14} />
+                    {savingReview ? 'Saving…' : clearanceButtonLabel} <ChevronRight size={14} />
                   </button>
                 </div>
               </div>
@@ -743,9 +767,13 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
             <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
               <div className="p-6">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Confirm action</p>
-                <h3 className="text-lg font-medium text-slate-900 mt-2">Mark this review as complete?</h3>
+                <h3 className="text-lg font-medium text-slate-900 mt-2">
+                  {isUnsuitable ? 'Mark as cleared for future booking?' : 'Mark this review as complete?'}
+                </h3>
                 <p className="text-sm text-slate-600 mt-2">
-                  This will clear the review flag and update the dashboard immediately.
+                  {isUnsuitable
+                    ? 'This will mark the record as reviewed/cleared for future booking. The client may still be unsuitable today.'
+                    : 'This will clear the review flag and update the dashboard immediately.'}
                 </p>
               </div>
               <div className="p-4 border-t border-slate-100 bg-white flex gap-2">
@@ -762,7 +790,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                   disabled={savingReview}
                   className="flex-1 px-4 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest bg-[#1a1a1a] text-white hover:bg-black disabled:opacity-60"
                 >
-                  {savingReview ? 'Saving…' : 'Yes, complete'}
+                  {savingReview ? 'Saving…' : isUnsuitable ? 'Yes, clear' : 'Yes, complete'}
                 </button>
               </div>
             </div>
