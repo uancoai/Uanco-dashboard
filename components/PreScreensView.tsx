@@ -10,7 +10,7 @@ type Props = {
   onNavigate?: (view: string) => void;
 };
 
-type Tab = 'all' | 'review' | 'unsuitable';
+type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
 
 function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
@@ -171,7 +171,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
 
   const normalized = useMemo(() => records.map(normalizeForPanel), [records]);
 
-  // UNSUITABLE comes from dropOffs canonical FAILs
+  // UNSUITABLE comes from dropOffs canonical FAILs only (excludes incomplete)
   const unsuitableFromDropOffs = useMemo(() => {
     return (dropOffs || [])
       .filter((r: any) => isCanonical(r))
@@ -179,22 +179,13 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
       .map((r: any) => normalizeForPanel({ ...r, __source: 'dropoff' }));
   }, [dropOffs]);
 
-  // REVIEW + UNSUITABLE coming from PreScreens table (if any exist there)
-  const reviewFromPreScreens = useMemo(() => {
-    return (normalized || []).filter((r: any) => toLower(r?.eligibility) === 'review');
-  }, [normalized]);
-
-  const unsuitableLocal = useMemo(() => {
-    return (normalized || []).filter((r: any) => toLower(r?.eligibility) === 'unsuitable');
-  }, [normalized]);
-
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
       const tabParam = (url.searchParams.get('tab') || url.searchParams.get('eligibility') || '').toLowerCase();
       const bookedParam = (url.searchParams.get('booked') || '').toLowerCase();
 
-      if (tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
+      if (tabParam === 'safe' || tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
         setTab(tabParam as Tab);
       }
 
@@ -209,7 +200,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     const storedTab = sessionStorage.getItem('prescreens_tab');
     const storedBooked = sessionStorage.getItem('prescreens_booked');
 
-    if (storedTab === 'review' || storedTab === 'unsuitable' || storedTab === 'all') {
+    if (storedTab === 'safe' || storedTab === 'review' || storedTab === 'unsuitable' || storedTab === 'all') {
       setTab(storedTab as Tab);
     }
 
@@ -222,29 +213,45 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Counts for THIS page: only Review + Unsuitable (no Safe)
   const counts = useMemo(() => {
-    const review = reviewFromPreScreens.length;
-    const unsuitable = unsuitableLocal.length + unsuitableFromDropOffs.length;
-    const all = review + unsuitable;
+    let safe = 0,
+      review = 0,
+      unsuitable = 0;
 
-    return { all, review, unsuitable };
-  }, [reviewFromPreScreens, unsuitableLocal, unsuitableFromDropOffs]);
+    for (const r of normalized) {
+      const e = toLower(r?.eligibility);
+      if (e === 'safe') safe++;
+      else if (e === 'review') review++;
+      else if (e === 'unsuitable') unsuitable++;
+    }
 
-  // Booked only makes sense for REVIEW list (dropOff unsuitable shouldn't toggle booking)
-  const bookedCount = useMemo(() => reviewFromPreScreens.filter(isBookedUi).length, [reviewFromPreScreens]);
+    // Add unsuitable from dropOffs (canonical FAIL)
+    unsuitable += unsuitableFromDropOffs.length;
+
+    return { all: safe + review + unsuitable, safe, review, unsuitable };
+  }, [normalized, unsuitableFromDropOffs]);
+
+  const bookedCount = useMemo(() => normalized.filter(isBookedUi).length, [normalized]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
 
-    const mergedUnsuitable = [...unsuitableLocal, ...unsuitableFromDropOffs];
+    // Only show completed prescreens with known eligibility (SAFE/REVIEW/UNSUITABLE)
+    // This removes any “—” / unknown / incomplete-ish records that slip into records.
+    const prescreensValid = normalized.filter((r) => {
+      const e = toLower(r?.eligibility);
+      return e === 'safe' || e === 'review' || e === 'unsuitable';
+    });
+
+    const unsuitableLocal = prescreensValid.filter((r) => toLower(r?.eligibility) === 'unsuitable');
+    const mergedAll = [...prescreensValid, ...unsuitableFromDropOffs];
 
     let list =
       tab === 'all'
-        ? [...reviewFromPreScreens, ...mergedUnsuitable]
+        ? mergedAll
         : tab === 'unsuitable'
-        ? mergedUnsuitable
-        : reviewFromPreScreens;
+        ? [...unsuitableLocal, ...unsuitableFromDropOffs]
+        : prescreensValid.filter((r) => toLower(r?.eligibility) === tab);
 
     if (bookedOnly) {
       list = list.filter((r) => isBookedUi(r));
@@ -267,7 +274,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     });
 
     return list;
-  }, [reviewFromPreScreens, unsuitableLocal, unsuitableFromDropOffs, tab, q, bookedOnly]);
+  }, [normalized, unsuitableFromDropOffs, tab, q, bookedOnly]);
 
   const toggleBooking = (r: any) => {
     if (!onUpdateRecord) return;
@@ -282,7 +289,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
       <div className="flex items-end justify-between">
         <div className="min-w-0">
           <h2 className="text-3xl font-serif">Pre-Screens</h2>
-          <p className="text-[11px] text-uanco-400 mt-1">Review and manage unsuitable clients.</p>
+          <p className="text-[11px] text-uanco-400 mt-1">Review, approve, and track booking status.</p>
         </div>
       </div>
 
@@ -298,6 +305,17 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
             }`}
           >
             All ({counts.all})
+          </button>
+
+          <button
+            onClick={() => setTab('safe')}
+            className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
+              tab === 'safe'
+                ? 'bg-uanco-900 text-white border-uanco-900'
+                : 'bg-white border-uanco-100 text-uanco-500 hover:bg-uanco-50'
+            }`}
+          >
+            Safe ({counts.safe})
           </button>
 
           <button
