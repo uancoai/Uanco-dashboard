@@ -54,16 +54,30 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
 }
 
 /** ---------- Normalisers ---------- */
-function friendlyFailReason(codeOrText: any): string {
-  const raw = String(codeOrText ?? "").trim();
+function friendlyFailReason(categoryOrText: any, reasonText?: any): string {
+  const raw = String(categoryOrText ?? "").trim();
   const code = raw.toUpperCase();
+  const reason = String(reasonText ?? "").toLowerCase();
+
+  // Explicit policy category (now supported by Airtable calc)
+  if (code === "POLICY_NOT_ACCEPTED") return "Policy not accepted";
+
+  // Split OTHER_FAIL into clinic-friendly buckets using the human reason text
+  if (code === "OTHER_FAIL") {
+    if (reason.includes("did not accept") || reason.includes("policy")) {
+      return "Policy not accepted";
+    }
+    if (reason.includes("chose to stop") || reason.includes("self-assessed not suitable")) {
+      return "Stopped / self-assessed not suitable";
+    }
+    return "Other fail";
+  }
 
   const map: Record<string, string> = {
     PREGNANT_BREASTFEEDING: "Pregnant or breastfeeding",
     ANTIBIOTICS: "Antibiotics in last 14 days",
     ALLERGIES: "Allergies declared",
     AGE: "Underage / age not verified",
-    OTHER_FAIL: "Not suitable / stopped / policy not accepted",
   };
 
   return map[code] || raw || "Unspecified";
@@ -234,7 +248,7 @@ export const handler: Handler = async (event) => {
           .map((f) => r[f])
           .find((v) => v !== undefined && v !== null && String(v).trim() !== "") ?? "Unspecified";
 
-      const key = friendlyFailReason(reason);
+      const key = friendlyFailReason(reason, r.reason);
       failReasonCounts.set(key, (failReasonCounts.get(key) || 0) + 1);
     }
     const failReasons = Array.from(failReasonCounts.entries())
