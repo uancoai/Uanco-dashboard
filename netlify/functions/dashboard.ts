@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const AIRTABLE_API = "https://api.airtable.com/v0";
 // Bump this string whenever you deploy backend changes, so the frontend/Network tab can confirm updates.
-const DASHBOARD_API_VERSION = "dashboard_v1_2026-01-13_recent-activity";
+const DASHBOARD_API_VERSION = "dashboard_v1_2026-01-13_metrics-align_v2";
 
 /** ---------- Auth helpers ---------- */
 function getBearerToken(event: any) {
@@ -214,25 +214,38 @@ export const handler: Handler = async (event) => {
     const treatments = tRes.records;
 
     // 6) Metrics (computed)
-    // Completed prescreens for the dashboard should be PASS + REVIEW only (no FAILs)
-    const preScreensForUi = preScreens.filter((r: any) => effectiveEligibility(r) !== "fail");
-    const totalPreScreens = preScreensForUi.length;
+    // Completed prescreens for the dashboard are PASS + REVIEW + FAIL (exclude blanks/unknown)
+    const preScreensCompleted = preScreens.filter((r: any) => {
+      const e = effectiveEligibility(r);
+      return e === "pass" || e === "review" || e === "fail";
+    });
 
     // Compute effective status using the same override logic as the UI
     let pass = 0;
-    let fail = 0;
     let review = 0;
+    let unsuitableFromPrescreens = 0;
 
-    for (const r of preScreensForUi) {
+    for (const r of preScreensCompleted) {
       const e = effectiveEligibility(r);
       if (e === "pass") pass++;
-      else if (e === "fail") fail++;
       else if (e === "review") review++;
+      else if (e === "fail") unsuitableFromPrescreens++;
     }
+
+    // Unsuitable = (FAIL rows in PreScreens) + (canonical FAIL rows in DropOffs)
+    const unsuitableCount = unsuitableFromPrescreens + canonicalFails.length;
+
+    // Total prescreens = Safe + Review + Unsuitable (excludes INCOMPLETE)
+    const totalPreScreens = pass + review + unsuitableCount;
+
+    // Pass rate is "safe to book" as a share of completed prescreens
     const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
 
     // Drop-off rate should reflect INCOMPLETE-only vs completed prescreens
     const dropOffRate = totalPreScreens ? Math.round((canonicalIncompletes.length / totalPreScreens) * 100) : 0;
+
+    const prescreenFails = preScreensCompleted.filter((r: any) => effectiveEligibility(r) === "fail");
+    const allHardFails = [...canonicalFails, ...prescreenFails];
 
     // ---- failReasons[] ----
     const failReasonFieldCandidates = [
@@ -244,7 +257,7 @@ export const handler: Handler = async (event) => {
       "reason",
     ];
     const failReasonCounts = new Map<string, number>();
-    for (const r of canonicalFails) {
+    for (const r of allHardFails) {
       const reason =
         failReasonFieldCandidates
           .map((f) => r[f])
@@ -307,7 +320,11 @@ export const handler: Handler = async (event) => {
 
     // Merged recent activity feed (SAFE/REVIEW + clinical FAIL). This is an alias-friendly shape for older UIs.
     const mergedRecentActivity = [
-      ...preScreensForUi.slice(0, 50).map((r: any) => ({ ...r, activity_kind: effectiveEligibility(r) || "unknown" })),
+      ...preScreensCompleted.slice(0, 50).map((r: any) => {
+        const e = effectiveEligibility(r);
+        const activity_kind = e === "pass" ? "safe" : e === "review" ? "review" : e === "fail" ? "unsuitable" : "unknown";
+        return { ...r, activity_kind };
+      }),
       ...recentClinicalFails.map((r: any) => ({ ...r, activity_kind: "unsuitable" })),
     ];
 
@@ -357,7 +374,7 @@ export const handler: Handler = async (event) => {
         Expires: "0",
       },
       body: JSON.stringify({
-        preScreens: preScreensForUi,
+        preScreens: preScreensCompleted,
         dropOffs,
         questions,
         treatments,
@@ -367,10 +384,10 @@ export const handler: Handler = async (event) => {
           passRate,
           dropOffRate,
           // Card-ready counts
-          unsuitableCount: canonicalFails.length, // FAIL + canonical YES
+          unsuitableCount,
           dropOffsCount: canonicalIncompletes.length, // INCOMPLETE + canonical YES
           // Hard fails come from canonical DropOff records (true FAIL outcomes)
-          hardFails: canonicalFails.length,
+          hardFails: unsuitableCount,
           // Temp fails are your REVIEW queue (manual_review_flag), which can later be cleared to PASS
           tempFails: review,
           // Helpful for debugging / rollout
