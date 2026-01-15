@@ -359,11 +359,11 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
   const isUnsuitable = eligibilityUi === 'UNSUITABLE';
   const showClearancePanel = showReviewSignals || showUnsuitableSignals;
 
-  const clearanceTitle = isUnsuitable ? 'Mark as cleared for future booking' : 'Mark review as complete';
+  const clearanceTitle = isUnsuitable ? 'Clinic override: cleared for future booking' : 'Mark review as complete';
   const clearanceHelper = isUnsuitable
-    ? "Only tick this if you’ve reviewed the client and you’re happy to book them in future (e.g. once pregnancy/breastfeeding or the antibiotics window has passed). If they can’t book online, you can book them manually."
+    ? "Use this when the client is unsuitable due to a temporary reason (e.g. antibiotics window or pregnancy/breastfeeding) but you’re happy to book them in advance. This does not change the original pre-screen answers."
     : "Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.";
-  const clearanceButtonLabel = isUnsuitable ? 'Confirm clearance' : 'Confirm review complete';
+  const clearanceButtonLabel = isUnsuitable ? 'Confirm clinic clearance' : 'Confirm review complete';
 
   // ✅ Booking gating rule
   const bookingLocked = isUnsuitable && !localCleared;
@@ -408,6 +408,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         }
 
         setLocalCleared(true);
+        setSavingReview(false);
         setConfirmReviewOpen(false);
         setReviewCompleteChecked(false);
       } else {
@@ -558,7 +559,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
                     {isUnsuitable && localCleared && (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-slate-50 text-slate-700 border-slate-200">
-                        Cleared
+                        Cleared by clinic
                       </span>
                     )}
                   </div>
@@ -767,8 +768,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
             {bookingLocked && (
               <p className="text-xs text-slate-500 text-center">
-                This client is <strong>unsuitable right now</strong>. If you’re happy to book them later, use{' '}
-                <strong>“Mark as cleared for future booking”</strong> first.
+                This client is <strong>unsuitable right now</strong>. If you’re happy to book them in advance, apply the{' '}
+                <strong>clinic override</strong> first.
               </p>
             )}
 
@@ -787,7 +788,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </h3>
                 <p className="text-sm text-slate-600 mt-2">
                   {isUnsuitable
-                    ? 'This will mark the record as cleared for future booking. The client may still be unsuitable today.'
+                    ? 'This will apply a clinic override so you can book the client in advance. The eligibility will remain UNSUITABLE (time-based), but booking will be unlocked so you can mark them as Booked.'
                     : 'This will clear the review flag and update the dashboard immediately.'}
                 </p>
               </div>
