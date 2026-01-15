@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { X, CalendarCheck, Check, Mail, Phone, AlertTriangle, ChevronRight } from 'lucide-react';
 
 type Props = {
-  record: any;        // normalized (name/email/eligibility/booking_status)
-  prescreen?: any;    // raw Airtable fields (age_verified, pregnant_breastfeeding, etc.)
+  record: any; // normalized (name/email/eligibility/booking_status)
+  prescreen?: any; // raw Airtable fields (age_verified, pregnant_breastfeeding, etc.)
   onClose: () => void;
   onUpdateRecord?: (id: string, updates: any) => void;
 };
@@ -68,13 +68,11 @@ function buildReviewReasons(prescreen: any): string[] {
   ]);
 
   const a = toLower(allergies);
-  // Only flag allergies when the answer is explicitly Yes/true
   if (a === 'yes' || a === 'true') {
     if (allergyDetail) reasons.push(`Allergy: ${String(allergyDetail).trim()}`);
     else reasons.push('Allergy: Yes');
   }
 
-  // Pregnancy / breastfeeding
   const preg = getFirstNonEmpty(prescreen, [
     'pregnant_breastfeeding',
     'pregnant_breastfeedinging',
@@ -84,17 +82,14 @@ function buildReviewReasons(prescreen: any): string[] {
   ]);
 
   const p = toLower(preg);
-  // Treat Yes or Not sure as a review signal
   if (p === 'yes' || p === 'true') {
     reasons.push('Pregnancy/Breastfeeding: Yes');
   } else if (p === 'not sure' || p === 'unsure' || p === 'maybe') {
     reasons.push('Pregnancy/Breastfeeding: Not sure');
   } else if (preg && p !== 'no' && p !== 'false') {
-    // Any non-empty unexpected value should still be surfaced
     reasons.push(`Pregnancy/Breastfeeding: ${String(preg).trim()}`);
   }
 
-  // Antibiotics (14d) — treat Yes as a review signal
   const abx = getFirstNonEmpty(prescreen, [
     'antibiotics_14d',
     'Antibiotics_14d',
@@ -113,13 +108,7 @@ function buildReviewReasons(prescreen: any): string[] {
   const conditions = getFirstNonEmpty(prescreen, ['conditions', 'Medical Conditions', 'medical_conditions']);
   asTextList(conditions).forEach((c) => reasons.push(`Condition: ${c}`));
 
-  // Add booking intent and hesitation
-  const intent = getFirstNonEmpty(prescreen, [
-    'booking_intent',
-    'Booking Intent',
-    'bookingIntent',
-    'Booking intent',
-  ]);
+  const intent = getFirstNonEmpty(prescreen, ['booking_intent', 'Booking Intent', 'bookingIntent', 'Booking intent']);
   const hesitation = getFirstNonEmpty(prescreen, [
     'booking_hesitation_reason',
     'Booking Hesitation Reason',
@@ -134,13 +123,10 @@ function buildReviewReasons(prescreen: any): string[] {
   return Array.from(new Set(reasons.map((r) => r.trim()).filter(Boolean)));
 }
 
-// Helper to detect review triggers even if Airtable did not set Manual Review Flag
 function hasReviewTriggers(rec: any) {
-  // If review already completed locally, do not treat anything as a live trigger
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
   if (isTruthy(reviewComplete)) return false;
 
-  // Pregnancy/Breastfeeding: Yes or Not sure
   const preg = getFirstNonEmpty(rec, [
     'pregnant_breastfeeding',
     'pregnant_breastfeedinging',
@@ -151,12 +137,10 @@ function hasReviewTriggers(rec: any) {
   const p = toLower(preg);
   const pregTrigger = p === 'yes' || p === 'true' || p === 'not sure' || p === 'unsure' || p === 'maybe';
 
-  // Allergies: Yes only ("Not sure" is not an option)
   const allergies = getFirstNonEmpty(rec, ['allergies_yesno', 'allergies', 'Allergies']);
   const a = toLower(allergies);
   const allergyTrigger = a === 'yes' || a === 'true';
 
-  // Antibiotics (14d): Yes only
   const abx = getFirstNonEmpty(rec, [
     'antibiotics_14d',
     'Antibiotics_14d',
@@ -173,7 +157,6 @@ function hasReviewTriggers(rec: any) {
 function buildUnsuitableSignals(rec: any): string[] {
   const signals: string[] = [];
 
-  // Prefer Airtable calc category if present
   const cat = String(
     getFirstNonEmpty(rec, [
       'fail_reason_category_calc',
@@ -188,7 +171,6 @@ function buildUnsuitableSignals(rec: any): string[] {
   if (cat === 'PREGNANT_BREASTFEEDING') signals.push('Pregnant / breastfeeding');
   if (cat === 'ANTIBIOTICS') signals.push('Antibiotics in last 14 days');
 
-  // Also derive from raw answers (so it works even if category calc is missing)
   const preg = getFirstNonEmpty(rec, [
     'pregnant_breastfeeding',
     'pregnant_breastfeedinging',
@@ -208,8 +190,8 @@ function buildUnsuitableSignals(rec: any): string[] {
     'Antibiotics (14d)',
     'Antibiotics (14 days)',
   ]);
-  const a = toLower(abx);
-  if (a === 'yes' || a === 'true' || a.includes('yes')) {
+  const ax = toLower(abx);
+  if (ax === 'yes' || ax === 'true' || ax.includes('yes')) {
     if (!signals.includes('Antibiotics in last 14 days')) signals.push('Antibiotics in last 14 days');
   }
 
@@ -233,8 +215,6 @@ function eligBadgeClasses(label: string) {
   return 'bg-rose-50 text-rose-700 border-rose-100';
 }
 
-// ✅ REVIEW locking rule (same spirit as Dashboard/PreScreens):
-// if flagged-for-review AND NOT review_complete -> show REVIEW
 function isManualReview(rec: any, localReviewComplete?: boolean) {
   if (localReviewComplete === true) return false;
 
@@ -245,7 +225,7 @@ function isManualReview(rec: any, localReviewComplete?: boolean) {
   if (e === 'review') return true;
 
   const explicitFlag = getFirstNonEmpty(rec, [
-    'Manual Review Flag', // ✅ your Airtable field (from your screenshot)
+    'Manual Review Flag',
     'manual_review_flag',
     'Flagged for Review',
     'flagged_for_review',
@@ -260,17 +240,31 @@ function isManualReview(rec: any, localReviewComplete?: boolean) {
   return isTruthy(explicitFlag);
 }
 
+// ✅ NEW: detect clearance flag so UNSUITABLE can be booked only after clearance
+function isClearedForFutureBooking(rec: any) {
+  const v = getFirstNonEmpty(rec, [
+    'cleared_for_future_booking',
+    'Cleared For Future Booking',
+    'Cleared for future booking',
+    'clearedForFutureBooking',
+  ]);
+  return isTruthy(v);
+}
+
 const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateRecord }) => {
   const [mode, setMode] = useState<'default' | 'approved'>('default');
-
   const [bookingStatus, setBookingStatus] = useState<'Booked' | 'Pending'>('Pending');
 
   const [reviewCompleteChecked, setReviewCompleteChecked] = useState(false);
   const [confirmReviewOpen, setConfirmReviewOpen] = useState(false);
   const [savingReview, setSavingReview] = useState(false);
 
-  // ✅ local “truth” so UI flips immediately after confirm
   const [localReviewComplete, setLocalReviewComplete] = useState(false);
+  const [localCleared, setLocalCleared] = useState(false);
+
+  if (!record) return null;
+
+  const raw = prescreen || record;
 
   useEffect(() => {
     setMode('default');
@@ -278,14 +272,12 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     setConfirmReviewOpen(false);
     setSavingReview(false);
 
-    const raw = prescreen || record;
     const existing = getFirstNonEmpty(raw, ['Review Complete', 'review_complete', 'reviewComplete']);
     setLocalReviewComplete(isTruthy(existing));
-  }, [record?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!record) return null;
-
-  const raw = prescreen || record;
+    setLocalCleared(isClearedForFutureBooking(raw));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.id]);
 
   useEffect(() => {
     const bookingStatusRaw =
@@ -298,16 +290,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     setBookingStatus(next);
   }, [record?.id, record?.booking_status, raw?.booking_status]);
 
-  const name =
-    getFirstNonEmpty(record, ['name', 'Name']) ||
-    getFirstNonEmpty(raw, ['name', 'Name']) ||
-    'Unnamed';
-
-  const email =
-    getFirstNonEmpty(record, ['email', 'Email']) ||
-    getFirstNonEmpty(raw, ['email', 'Email']) ||
-    '';
-
+  const name = getFirstNonEmpty(record, ['name', 'Name']) || getFirstNonEmpty(raw, ['name', 'Name']) || 'Unnamed';
+  const email = getFirstNonEmpty(record, ['email', 'Email']) || getFirstNonEmpty(raw, ['email', 'Email']) || '';
   const phone =
     getFirstNonEmpty(record, ['phone', 'Phone', 'mobile', 'Mobile']) ||
     getFirstNonEmpty(raw, ['phone', 'Phone', 'mobile', 'Mobile']) ||
@@ -340,21 +324,14 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     ]) ||
     '';
 
-  // ✅ Effective eligibility: FAIL/UNSUITABLE always wins, otherwise REVIEW if manual flag or any triggers
   const eligibilityUi: 'SAFE' | 'REVIEW' | 'UNSUITABLE' | '—' = useMemo(() => {
     const rawElig =
-      getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ??
-      getFirstNonEmpty(record, ['eligibility', 'Eligibility']);
+      getFirstNonEmpty(raw, ['eligibility', 'Eligibility']) ?? getFirstNonEmpty(record, ['eligibility', 'Eligibility']);
 
     const base = toUiEligibility(rawElig);
 
-    // Hard-stop: FAIL/UNSUITABLE always wins
     if (base === 'UNSUITABLE') return 'UNSUITABLE';
-
-    // REVIEW when flagged-for-review (unless review completed)
     if (isManualReview(raw, localReviewComplete)) return 'REVIEW';
-
-    // REVIEW when any trigger answers indicate review is needed (unless review completed)
     if (!localReviewComplete && hasReviewTriggers(raw)) return 'REVIEW';
 
     return base;
@@ -369,8 +346,32 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         .toUpperCase()
     : '??';
 
+  const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
+
+  const unsuitableSignals = useMemo(() => {
+    if (eligibilityUi !== 'UNSUITABLE') return [];
+    return buildUnsuitableSignals(raw);
+  }, [eligibilityUi, raw]);
+
+  const showReviewSignals = eligibilityUi === 'REVIEW';
+  const showUnsuitableSignals = eligibilityUi === 'UNSUITABLE' && unsuitableSignals.length > 0;
+
+  const isUnsuitable = eligibilityUi === 'UNSUITABLE';
+  const showClearancePanel = showReviewSignals || showUnsuitableSignals;
+
+  const clearanceTitle = isUnsuitable ? 'Mark as cleared for future booking' : 'Mark review as complete';
+  const clearanceHelper = isUnsuitable
+    ? "Only tick this if you’ve reviewed the client and you’re happy to book them in future (e.g. once pregnancy/breastfeeding or the antibiotics window has passed). If they can’t book online, you can book them manually."
+    : "Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.";
+  const clearanceButtonLabel = isUnsuitable ? 'Confirm clearance' : 'Confirm review complete';
+
+  // ✅ Booking gating rule
+  const bookingLocked = isUnsuitable && !localCleared;
+
   const toggleBooking = () => {
     if (!onUpdateRecord) return;
+    if (bookingLocked) return;
+
     const next: 'Booked' | 'Pending' = bookingStatus === 'Booked' ? 'Pending' : 'Booked';
     setBookingStatus(next);
     onUpdateRecord(record.id, { booking_status: next });
@@ -385,16 +386,12 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
       const currentElig = toLower(getFirstNonEmpty(raw, ['eligibility', 'Eligibility']));
 
       if (eligibilityUi === 'UNSUITABLE') {
-        // --- Begin replacement for UNSUITABLE branch ---
         const nowIso = new Date().toISOString();
 
-        // Always set the core flag
         const updates: any = {
           cleared_for_future_booking: true,
         };
 
-        // Only attempt optional fields if the base appears to have them already
-        // (prevents Airtable rejecting unknown field names)
         const hasClearedAt = getFirstNonEmpty(raw, ['cleared_at', 'Cleared At']) !== null;
         const hasClearedBy = getFirstNonEmpty(raw, ['cleared_by', 'Cleared By']) !== null;
         const hasClearanceNote = getFirstNonEmpty(raw, ['clearance_note', 'Clearance Note']) !== null;
@@ -406,22 +403,19 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         try {
           await onUpdateRecord(record.id, updates);
         } catch (err) {
-          // Fallback: if Airtable still rejects unknown optional fields, retry minimal payload
           console.warn('[markReviewComplete] clearance update failed, retrying minimal payload', err);
           await onUpdateRecord(record.id, { cleared_for_future_booking: true });
         }
+
+        setLocalCleared(true);
         setConfirmReviewOpen(false);
         setReviewCompleteChecked(false);
-        setLocalReviewComplete(true);
       } else {
-        // --- Original branch for non-UNSUITABLE ---
         const updates: any = {
-          // ✅ mark complete
           review_complete: true,
           reviewComplete: true,
           'Review Complete': true,
 
-          // ✅ clear the flags so overrides stop everywhere
           'Manual Review Flag': false,
           manual_review_flag: false,
           'Flagged for Review': false,
@@ -434,23 +428,18 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
           'Flagged': false,
         };
 
-        // ✅ if eligibility itself was literally "review", flip it to "pass"
         if (currentElig === 'review') {
           updates.eligibility = 'pass';
           updates.Eligibility = 'pass';
         }
 
-        // optimistic local UI flip
         setLocalReviewComplete(true);
-
         await onUpdateRecord(record.id, updates);
 
         setConfirmReviewOpen(false);
         setReviewCompleteChecked(false);
       }
     } catch (e) {
-      // rollback UI if save failed
-      setLocalReviewComplete(false);
       console.error('[markReviewComplete] failed', e);
     } finally {
       setSavingReview(false);
@@ -462,7 +451,11 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
       { label: 'Over 18?', value: getFirstNonEmpty(raw, ['age_verified', 'Age Verified']) },
       {
         label: 'Pregnancy/Nursing?',
-        value: getFirstNonEmpty(raw, ['pregnant_breastfeeding', 'pregnant_breastfeedinging', 'Pregnant/Breastfeeding']),
+        value: getFirstNonEmpty(raw, [
+          'pregnant_breastfeeding',
+          'pregnant_breastfeedinging',
+          'Pregnant/Breastfeeding',
+        ]),
       },
       { label: 'Allergies?', value: getFirstNonEmpty(raw, ['allergies_yesno', 'Allergies', 'allergies']) },
       {
@@ -488,10 +481,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
         ]),
       },
       { label: 'Medications', value: getFirstNonEmpty(raw, ['medications', 'Medications']) },
-      {
-        label: 'Medical conditions',
-        value: getFirstNonEmpty(raw, ['conditions', 'Medical Conditions', 'medical_conditions']),
-      },
+      { label: 'Medical conditions', value: getFirstNonEmpty(raw, ['conditions', 'Medical Conditions', 'medical_conditions']) },
       {
         label: 'Antibiotics (14d)?',
         value: getFirstNonEmpty(raw, [
@@ -506,31 +496,6 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
     return rows.filter((r) => r.value !== null && r.value !== undefined && String(r.value).trim() !== '');
   }, [raw]);
-
-  const reviewReasons = useMemo(() => buildReviewReasons(raw), [raw]);
-
-  // Only show the Review Signals panel for REVIEW clients (do not show it just because reasons exist)
-  const showReviewSignals = eligibilityUi === 'REVIEW';
-
-  const unsuitableSignals = useMemo(() => {
-    if (eligibilityUi !== 'UNSUITABLE') return [];
-    return buildUnsuitableSignals(raw);
-  }, [eligibilityUi, raw]);
-
-  const showUnsuitableSignals = eligibilityUi === 'UNSUITABLE' && unsuitableSignals.length > 0;
-
-  const isUnsuitable = eligibilityUi === 'UNSUITABLE';
-
-  // Show the action checkbox for REVIEW clients, and for UNSUITABLE clients only when we have clinical signals
-  const showClearancePanel = showReviewSignals || showUnsuitableSignals;
-
-  const clearanceTitle = isUnsuitable ? 'Mark as cleared for future booking' : 'Mark review as complete';
-
-  const clearanceHelper = isUnsuitable
-    ? "Only tick this if you’ve reviewed the client and you’re happy to book them in future (e.g. once pregnancy/breastfeeding or the antibiotics window has passed). If they can’t book online, you can book them manually."
-    : "Only tick this if you’ve reviewed the client and you’re happy for them to book in future. If they can’t book online today, you can book them manually.";
-
-  const clearanceButtonLabel = isUnsuitable ? 'Confirm clearance' : 'Confirm review complete';
 
   return (
     <>
@@ -553,9 +518,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
               </div>
 
               <div className="flex-1 pt-1 min-w-0 pr-8">
-                <h2 className="text-2xl font-serif font-medium text-slate-900 leading-none mb-3 truncate">
-                  {name}
-                </h2>
+                <h2 className="text-2xl font-serif font-medium text-slate-900 leading-none mb-3 truncate">{name}</h2>
 
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-2 min-w-0">
@@ -584,28 +547,32 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     )}
                   </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border shrink-0 ${eligBadgeClasses(
-                      eligibilityUi
-                    )}`}
-                  >
-                    {eligibilityUi}
-                  </span>
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${eligBadgeClasses(
+                        eligibilityUi
+                      )}`}
+                    >
+                      {eligibilityUi}
+                    </span>
+
+                    {isUnsuitable && localCleared && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border bg-slate-50 text-slate-700 border-slate-200">
+                        Cleared
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
-                Requested treatment
-              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Requested treatment</p>
               <p className="text-sm font-medium text-slate-900 truncate">• {String(treatment)}</p>
 
               {(bookingIntent || bookingHesitationReason) && (
                 <div className="mt-3 pt-3 border-t border-slate-100">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">
-                    Booking insight
-                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Booking insight</p>
 
                   <div className="flex flex-wrap gap-2">
                     {bookingIntent && (
@@ -630,9 +597,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
             {showUnsuitableSignals && (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                    Unsuitable signals
-                  </p>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Unsuitable signals</p>
                   <p className="text-xs text-slate-500 mt-0.5">Why the client can’t book right now</p>
                 </div>
 
@@ -646,6 +611,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </div>
               </div>
             )}
+
             {showReviewSignals && (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 bg-white/60 border-b border-slate-100 flex items-center justify-between gap-3">
@@ -680,7 +646,8 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                     <div>
                       <p className="font-medium text-slate-800">This record is marked for review.</p>
                       <p className="text-xs text-slate-500 mt-1">
-                        No structured reason fields were found on this record. If a client answers Yes or Not sure to pregnancy or allergies then it will appear here.
+                        No structured reason fields were found on this record. If a client answers Yes or Not sure to
+                        pregnancy or allergies then it will appear here.
                       </p>
                     </div>
                   </div>
@@ -700,9 +667,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
             {showClearancePanel && (
               <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
                 <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                    Practitioner action
-                  </p>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Practitioner action</p>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {isUnsuitable ? 'Clear for future booking if appropriate' : 'Complete review and clear flags'}
                   </p>
@@ -741,9 +706,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
             {/* Pre-screen results */}
             <div className="bg-white rounded-2xl border border-slate-100 overflow-hidden">
               <div className="px-4 py-3 bg-white/60 border-b border-slate-100">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                  Pre-screen results
-                </p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Pre-screen results</p>
               </div>
 
               {preScreenRows.length === 0 ? (
@@ -764,20 +727,32 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </div>
               )}
             </div>
-
           </div>
 
           {/* Actions */}
           <div className="p-6 pt-4 border-t border-slate-50 bg-white space-y-3">
             <button
+              disabled={bookingLocked}
               className={`w-full py-3.5 rounded-xl font-medium text-sm transition-colors shadow-lg flex items-center justify-center gap-2 ${
-                bookingStatus === 'Booked'
+                bookingLocked
+                  ? 'bg-slate-50 text-slate-400 border border-slate-100 shadow-none cursor-not-allowed'
+                  : bookingStatus === 'Booked'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-100 shadow-none'
                   : 'bg-[#1a1a1a] text-white hover:bg-black'
               }`}
               onClick={toggleBooking}
+              title={
+                bookingLocked
+                  ? 'This client is currently unsuitable. Clear for future booking to allow manual booking.'
+                  : undefined
+              }
             >
-              {bookingStatus === 'Booked' ? (
+              {bookingLocked ? (
+                <>
+                  <AlertTriangle size={18} />
+                  Booking locked (clear first)
+                </>
+              ) : bookingStatus === 'Booked' ? (
                 <>
                   <Check size={18} />
                   Booked (click to set Pending)
@@ -789,6 +764,13 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </>
               )}
             </button>
+
+            {bookingLocked && (
+              <p className="text-xs text-slate-500 text-center">
+                This client is <strong>unsuitable right now</strong>. If you’re happy to book them later, use{' '}
+                <strong>“Mark as cleared for future booking”</strong> first.
+              </p>
+            )}
 
             {mode === 'approved' && <p className="text-xs text-slate-500 text-center">Updating eligibility…</p>}
           </div>
@@ -805,7 +787,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 </h3>
                 <p className="text-sm text-slate-600 mt-2">
                   {isUnsuitable
-                    ? 'This will mark the record as reviewed/cleared for future booking. The client may still be unsuitable today.'
+                    ? 'This will mark the record as cleared for future booking. The client may still be unsuitable today.'
                     : 'This will clear the review flag and update the dashboard immediately.'}
                 </p>
               </div>
