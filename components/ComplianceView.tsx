@@ -51,16 +51,57 @@ function isManualReview(rec: any) {
   return isTruthy(explicitFlag);
 }
 
-function toUiEligibility(rec: any): "SAFE" | "REVIEW" | "UNSUITABLE" | "—" {
-  // Review override wins
-  if (isManualReview(rec)) return "REVIEW";
+// ✅ Inferred review triggers (even if manual_review_flag wasn't set)
+function hasReviewTriggers(rec: any) {
+  // If review already completed, do not treat anything as a live trigger
+  const reviewComplete = getFirstNonEmpty(rec, ["Review Complete", "review_complete", "reviewComplete"]);
+  if (isTruthy(reviewComplete)) return false;
 
+  // Pregnancy/Breastfeeding: Yes OR Not sure
+  const preg = getFirstNonEmpty(rec, [
+    "pregnant_breastfeeding",
+    "Pregnant/Breastfeeding",
+    "Pregnant Breastfeeding",
+    "pregnant_breastfeed",
+    "pregnancy",
+  ]);
+  const p = toLower(preg);
+  const pregTrigger = p === "yes" || p === "true" || p === "not sure" || p === "unsure" || p === "maybe";
+
+  // Allergies: Yes only
+  const allergies = getFirstNonEmpty(rec, ["allergies_yesno", "allergies", "Allergies"]);
+  const a = toLower(allergies);
+  const allergyTrigger = a === "yes" || a === "true";
+
+  // Antibiotics in last 14 days: Yes only
+  const abx = getFirstNonEmpty(rec, [
+    "antibiotics_14d",
+    "Antibiotics_14d",
+    "Antibiotics 14d",
+    "Antibiotics (14d)",
+    "Antibiotics (14 days)",
+  ]);
+  const abxVal = toLower(abx);
+  const abxTrigger = abxVal === "yes" || abxVal === "true";
+
+  return pregTrigger || allergyTrigger || abxTrigger;
+}
+
+function toUiEligibility(rec: any): "SAFE" | "REVIEW" | "UNSUITABLE" | "—" {
   const raw = getFirstNonEmpty(rec, ["eligibility", "Eligibility"]);
   const s = toLower(raw);
 
-  if (s === "pass" || s === "safe") return "SAFE";
+  // Hard stop always wins
   if (s === "fail" || s === "unsuitable") return "UNSUITABLE";
-  if (s === "review") return "REVIEW";
+
+  // Explicit review values
+  if (s === "review" || s === "manual review") return "REVIEW";
+
+  // Inferred/flag-based review
+  if (isManualReview(rec) || hasReviewTriggers(rec)) return "REVIEW";
+
+  // Safe
+  if (s === "pass" || s === "safe") return "SAFE";
 
   return raw ? (String(raw).toUpperCase() as any) : "—";
 }
