@@ -121,16 +121,45 @@ function bookingBadgeClasses(status: 'Booked' | 'Pending') {
 // Manual review override: manual_review_flag === "Yes" wins unless review is completed
 function isManualReview(rec: any) {
   const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
-  const reviewCompleteLower = toLower(reviewComplete);
-  if (reviewComplete === true || reviewCompleteLower === 'true' || reviewCompleteLower === 'yes') return false;
+  if (isTruthy(reviewComplete)) return false;
 
-  // If Airtable eligibility is Manual Review
+  // If Airtable eligibility is Manual Review / Review
   const eligRaw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
-  if (toLower(eligRaw) === 'manual review') return true;
+  const elig = toLower(eligRaw);
+  if (elig === 'manual review' || elig === 'review') return true;
 
-  // Your confirmed field:
-  const flag = getFirstNonEmpty(rec, ['manual_review_flag']);
-  return toLower(flag) === 'yes';
+  // Manual review flag (supports string, boolean, and alternative field names)
+  const flag = getFirstNonEmpty(rec, ['manual_review_flag', 'Manual Review Flag', 'Flagged for Review', 'flagged_for_review']);
+  return isTruthy(flag) || toLower(flag) === 'yes';
+}
+
+// REVIEW triggers even if Airtable did not set manual_review_flag
+function hasReviewTriggers(rec: any) {
+  const reviewComplete = getFirstNonEmpty(rec, ['Review Complete', 'review_complete', 'reviewComplete']);
+  if (isTruthy(reviewComplete)) return false;
+
+  // Pregnancy/Breastfeeding: Yes OR Not sure
+  const preg = getFirstNonEmpty(rec, [
+    'pregnant_breastfeeding',
+    'pregnant_breastfeeding_calc',
+    'Pregnant/Breastfeeding',
+    'Pregnant Breastfeeding',
+    'pregnant_breastfeed',
+  ]);
+  const p = toLower(preg);
+  const pregTrigger = p === 'yes' || p === 'true' || p === 'not sure' || p === 'unsure' || p === 'maybe';
+
+  // Allergies: Yes only
+  const allergies = getFirstNonEmpty(rec, ['allergies_yesno', 'allergies_yesno_calc', 'allergies', 'Allergies']);
+  const a = toLower(allergies);
+  const allergyTrigger = a === 'yes' || a === 'true';
+
+  // Antibiotics (14d): Yes only
+  const abx = getFirstNonEmpty(rec, ['antibiotics_14d', 'antibiotics_14d_calc', 'Antibiotics (14d)', 'Antibiotics (14 days)']);
+  const ab = toLower(abx);
+  const abxTrigger = ab === 'yes' || ab === 'true';
+
+  return pregTrigger || allergyTrigger || abxTrigger;
 }
 
 function effectiveUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | 'â€”' {
@@ -138,8 +167,11 @@ function effectiveUiEligibility(rec: any): 'SAFE' | 'REVIEW' | 'UNSUITABLE' | 'â
   const eligRaw = getFirstNonEmpty(rec, ['eligibility', 'Eligibility']);
   if (toLower(eligRaw) === 'fail') return 'UNSUITABLE';
 
-  // Manual review override:
+  // Manual review override (unless review completed)
   if (isManualReview(rec)) return 'REVIEW';
+
+  // Trigger-based REVIEW (unless review completed)
+  if (hasReviewTriggers(rec)) return 'REVIEW';
 
   return baseEligibilityFromAirtable(eligRaw);
 }
