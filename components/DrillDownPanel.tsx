@@ -249,10 +249,21 @@ function isManualReview(rec: any, localReviewComplete?: boolean) {
 // ✅ NEW: detect clearance flag so UNSUITABLE can be booked only after clearance
 function isClearedForFutureBooking(rec: any) {
   const v = getFirstNonEmpty(rec, [
+    // snake_case
     'cleared_for_future_booking',
-    'Cleared For Future Booking',
+
+    // Airtable labels (common variants)
     'Cleared for future booking',
+    'Cleared For Future Booking',
+    'Cleared for Future Booking',
+    'Cleared (Future Booking)',
+
+    // camel/legacy variants
     'clearedForFutureBooking',
+
+    // additional fallbacks some bases use
+    'clinic_clearance_override',
+    'Clinic clearance override',
   ]);
   return isTruthy(v);
 }
@@ -380,13 +391,23 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
   // ✅ Booking gating rule
   const bookingLocked = isUnsuitable && !localCleared;
 
-  const toggleBooking = () => {
+  const toggleBooking = async () => {
     if (!onUpdateRecord) return;
     if (bookingLocked) return;
 
     const next: 'Booked' | 'Pending' = bookingStatus === 'Booked' ? 'Pending' : 'Booked';
+
+    // optimistic UI
     setBookingStatus(next);
-    onUpdateRecord(record.id, { booking_status: next });
+
+    try {
+      await onUpdateRecord(record.id, {
+        booking_status: next,
+        'Booking Status': next,
+      });
+    } catch (e) {
+      console.error('[toggleBooking] failed to persist booking status', e);
+    }
   };
 
   const markReviewComplete = async () => {
@@ -402,11 +423,12 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
         const updates: any = {
           cleared_for_future_booking: true,
+          'Cleared for future booking': true,
         };
 
-        const hasClearedAt = getFirstNonEmpty(raw, ['cleared_at', 'Cleared At']) !== null;
-        const hasClearedBy = getFirstNonEmpty(raw, ['cleared_by', 'Cleared By']) !== null;
-        const hasClearanceNote = getFirstNonEmpty(raw, ['clearance_note', 'Clearance Note']) !== null;
+        const hasClearedAt = getFirstNonEmpty(raw, ['cleared_at', 'Cleared At', 'Cleared at']) !== null;
+        const hasClearedBy = getFirstNonEmpty(raw, ['cleared_by', 'Cleared By', 'Cleared by']) !== null;
+        const hasClearanceNote = getFirstNonEmpty(raw, ['clearance_note', 'Clearance Note', 'Clearance note']) !== null;
 
         if (hasClearedAt) updates.cleared_at = nowIso;
         if (hasClearedBy) updates.cleared_by = 'Practitioner';
@@ -416,7 +438,10 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
           await onUpdateRecord(record.id, updates);
         } catch (err) {
           console.warn('[markReviewComplete] clearance update failed, retrying minimal payload', err);
-          await onUpdateRecord(record.id, { cleared_for_future_booking: true });
+          await onUpdateRecord(record.id, {
+            cleared_for_future_booking: true,
+            'Cleared for future booking': true,
+          });
         }
 
         setLocalCleared(true);
