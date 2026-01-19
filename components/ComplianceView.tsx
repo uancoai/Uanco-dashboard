@@ -33,7 +33,7 @@ function isManualReview(rec: any) {
   if (isTruthy(reviewComplete)) return false;
 
   const e = toLower(getFirstNonEmpty(rec, ["eligibility", "Eligibility"]));
-  if (e === "review") return true;
+  if (e === "review" || e === "manual review") return true;
 
   const explicitFlag = getFirstNonEmpty(rec, [
     "Flagged for Review",
