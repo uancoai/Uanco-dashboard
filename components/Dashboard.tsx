@@ -304,7 +304,11 @@ const Dashboard: React.FC<Props> = ({
     let ready = 0;
     let hesitate = 0;
 
-    for (const r of preScreens) {
+    // Booking intent is only meaningful post-PASS/SAFE.
+    // Do not let REVIEW / UNSUITABLE records pollute the intent signals.
+    const safeOnly = preScreens.filter((r: any) => toUiEligibility(r) === 'SAFE');
+
+    for (const r of safeOnly) {
       const intent = normalizeIntent(getBookingIntent(r));
       if (!intent) continue;
 
@@ -555,7 +559,12 @@ const Dashboard: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-[12px] text-uanco-500">Incomplete</span>
+              <span className="text-[12px] text-uanco-500">Unsuitable</span>
+              <span className="text-sm font-medium text-uanco-900">{totals.unsuitable}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] text-uanco-500">Drop-offs</span>
               <span className="text-sm font-medium text-uanco-900">
                 {totals.incomplete}
                 {dropOffRateUi > 0 ? ` (${dropOffRateUi}%)` : ''}
