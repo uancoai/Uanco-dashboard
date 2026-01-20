@@ -278,6 +278,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
   const [localReviewComplete, setLocalReviewComplete] = useState(false);
   const [localCleared, setLocalCleared] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   if (!record) return null;
 
@@ -288,6 +289,7 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
     setReviewCompleteChecked(false);
     setConfirmReviewOpen(false);
     setSavingReview(false);
+    setSaveError(null);
 
     const existing = getFirstNonEmpty(raw, ['Review Complete', 'review_complete', 'reviewComplete']);
     setLocalReviewComplete(isTruthy(existing));
@@ -399,14 +401,18 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
 
     // optimistic UI
     setBookingStatus(next);
+    setSaveError(null);
 
     try {
+      // IMPORTANT: only send the real Airtable field name we control
       await onUpdateRecord(record.id, {
         booking_status: next,
-        'Booking Status': next,
       });
     } catch (e) {
       console.error('[toggleBooking] failed to persist booking status', e);
+      // rollback UI if save failed
+      setBookingStatus(bookingStatus);
+      setSaveError('Could not save booking status. Please refresh and try again.');
     }
   };
 
@@ -419,35 +425,23 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
       const currentElig = toLower(getFirstNonEmpty(raw, ['eligibility', 'Eligibility']));
 
       if (eligibilityUi === 'UNSUITABLE') {
-        const nowIso = new Date().toISOString();
-
-        const updates: any = {
-          cleared_for_future_booking: true,
-          'Cleared for future booking': true,
-        };
-
-        const hasClearedAt = getFirstNonEmpty(raw, ['cleared_at', 'Cleared At', 'Cleared at']) !== null;
-        const hasClearedBy = getFirstNonEmpty(raw, ['cleared_by', 'Cleared By', 'Cleared by']) !== null;
-        const hasClearanceNote = getFirstNonEmpty(raw, ['clearance_note', 'Clearance Note', 'Clearance note']) !== null;
-
-        if (hasClearedAt) updates.cleared_at = nowIso;
-        if (hasClearedBy) updates.cleared_by = 'Practitioner';
-        if (hasClearanceNote) updates.clearance_note = '';
+        // For UNSUITABLE, this is a clinic override only.
+        // Keep payload minimal so Airtable never rejects unknown field names.
+        setSaveError(null);
 
         try {
-          await onUpdateRecord(record.id, updates);
-        } catch (err) {
-          console.warn('[markReviewComplete] clearance update failed, retrying minimal payload', err);
           await onUpdateRecord(record.id, {
             cleared_for_future_booking: true,
-            'Cleared for future booking': true,
           });
-        }
 
-        setLocalCleared(true);
-        setSavingReview(false);
-        setConfirmReviewOpen(false);
-        setReviewCompleteChecked(false);
+          // optimistic local UI + unlock booking
+          setLocalCleared(true);
+          setConfirmReviewOpen(false);
+          setReviewCompleteChecked(false);
+        } catch (err) {
+          console.error('[markReviewComplete] clearance update failed', err);
+          setSaveError('Could not save clinic clearance. Please refresh and try again.');
+        }
       } else {
         const updates: any = {
           review_complete: true,
@@ -808,6 +802,12 @@ const DrillDownPanel: React.FC<Props> = ({ record, prescreen, onClose, onUpdateR
                 This client is <strong>unsuitable right now</strong>. If you’re happy to book them in advance, apply the{' '}
                 <strong>clinic override</strong> first.
               </p>
+            )}
+
+            {saveError && (
+              <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {saveError}
+              </div>
             )}
 
             {mode === 'approved' && <p className="text-xs text-slate-500 text-center">Updating eligibility…</p>}
