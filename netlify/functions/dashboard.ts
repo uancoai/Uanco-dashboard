@@ -37,7 +37,7 @@ async function airtableGet(path: string) {
  * - Filters in code by linked record field "Clinic" containing clinicId
  * - Returns error string (not thrown) when Airtable fails
  */
-async function safeFetchTable(baseId: string, tableName: string, clinicId: string) {
+async function safeFetchTable(baseId: string, tableName: string, clinicId: string | null) {
   try {
     const q = new URLSearchParams({
       pageSize: "100",
@@ -62,6 +62,9 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
     ];
 
     const recordMatchesClinic = (r: any) => {
+      // Super-admin "all clinics" mode: if clinicId is not provided, do not filter.
+      if (!clinicId) return true;
+
       for (const f of clinicFieldCandidates) {
         const v = r?.[f];
 
@@ -253,6 +256,9 @@ export const handler: Handler = async (event) => {
     // For backwards-compat, keep a single clinicId field in responses (UUID when known)
     const clinicId = clinic_uuid;
 
+    // All clinics mode for super admins (when no override is provided)
+    const allClinicsMode = isSuperAdmin && !clinicIdOverride;
+
     // 5) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
     if (!baseId) {
@@ -265,10 +271,12 @@ export const handler: Handler = async (event) => {
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
     // 6) Fetch everything for this clinic (filter in code)
-    const preRes = await safeFetchTable(baseId, prescreensTable, airtable_clinic_record_id);
-    const dropRes = await safeFetchTable(baseId, dropoffsTable, airtable_clinic_record_id);
-    const qRes = await safeFetchTable(baseId, questionsTable, airtable_clinic_record_id);
-    const tRes = await safeFetchTable(baseId, treatmentsTable, airtable_clinic_record_id);
+    const clinicFilterId = allClinicsMode ? null : airtable_clinic_record_id;
+
+    const preRes = await safeFetchTable(baseId, prescreensTable, clinicFilterId);
+    const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicFilterId);
+    const qRes = await safeFetchTable(baseId, questionsTable, clinicFilterId);
+    const tRes = await safeFetchTable(baseId, treatmentsTable, clinicFilterId);
 
     const preScreens = preRes.records;
     // Sort newest-first so UI "recent" is consistent even if the client doesn't sort
@@ -476,6 +484,7 @@ export const handler: Handler = async (event) => {
         clinicId,
         clinic_uuid,
         airtable_clinic_record_id,
+        all_clinics_mode: allClinicsMode,
         metrics: {
           totalPreScreens,
           passRate,
