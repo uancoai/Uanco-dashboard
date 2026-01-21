@@ -178,14 +178,53 @@ export const handler: Handler = async (event) => {
 
     const isSuperAdmin = String(profile.role || "").toLowerCase() === "super_admin";
 
-    // 4) Decide which clinic to load:
-    // - Normal clinic users: always their own clinic_id
-    // - Super admins: can optionally override via ?clinic_id=... (or legacy ?clinicId=...)
-    const clinicId = isSuperAdmin && clinicIdOverride ? clinicIdOverride : profile.clinic_id;
+    // 4) Resolve clinic scoping
+    // Airtable "Clinic" linked-record fields contain Airtable record IDs (rec...),
+    // but profiles.clinic_id is a Supabase UUID. We must resolve UUID -> airtable_clinic_record_id.
 
-    if (!clinicId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
+    const resolveClinicByUuid = async (uuid: string) => {
+      const { data, error } = await supabaseAdmin
+        .from("clinics")
+        .select("id, public_clinic_key, airtable_clinic_record_id")
+        .eq("id", uuid)
+        .single();
+      if (error) throw new Error(`Clinic lookup failed: ${error.message}`);
+      if (!data) throw new Error("Clinic not found");
+      if (!data.airtable_clinic_record_id) throw new Error("Clinic missing airtable_clinic_record_id");
+      return data as { id: string; public_clinic_key: string | null; airtable_clinic_record_id: string };
+    };
+
+    // Default to the caller's clinic UUID from profiles
+    const callerClinicUuid = String(profile.clinic_id || "").trim();
+    if (!callerClinicUuid) {
+      return { statusCode: 403, body: JSON.stringify({ error: "Missing clinic mapping (profiles.clinic_id)" }) };
     }
+
+    // Resolve caller clinic UUID -> Airtable rec...
+    const callerClinic = await resolveClinicByUuid(callerClinicUuid);
+
+    // Optional override for super admins:
+    // - If override starts with "rec" treat it as Airtable clinic record id
+    // - Otherwise treat it as Supabase clinic UUID and resolve it
+    let clinic_uuid = callerClinic.id;
+    let airtable_clinic_record_id = callerClinic.airtable_clinic_record_id;
+
+    if (isSuperAdmin && clinicIdOverride) {
+      const ov = String(clinicIdOverride).trim();
+      if (ov) {
+        if (ov.startsWith("rec")) {
+          airtable_clinic_record_id = ov;
+          // keep clinic_uuid as callerClinic.id (admin's own) if we can't resolve a UUID
+        } else {
+          const resolved = await resolveClinicByUuid(ov);
+          clinic_uuid = resolved.id;
+          airtable_clinic_record_id = resolved.airtable_clinic_record_id;
+        }
+      }
+    }
+
+    // For backwards-compat, keep a single clinicId field in responses (UUID when known)
+    const clinicId = clinic_uuid;
 
     // 5) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
@@ -199,10 +238,10 @@ export const handler: Handler = async (event) => {
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
     // 6) Fetch everything for this clinic (filter in code)
-    const preRes = await safeFetchTable(baseId, prescreensTable, clinicId);
-    const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicId);
-    const qRes = await safeFetchTable(baseId, questionsTable, clinicId);
-    const tRes = await safeFetchTable(baseId, treatmentsTable, clinicId);
+    const preRes = await safeFetchTable(baseId, prescreensTable, airtable_clinic_record_id);
+    const dropRes = await safeFetchTable(baseId, dropoffsTable, airtable_clinic_record_id);
+    const qRes = await safeFetchTable(baseId, questionsTable, airtable_clinic_record_id);
+    const tRes = await safeFetchTable(baseId, treatmentsTable, airtable_clinic_record_id);
 
     const preScreens = preRes.records;
     // Sort newest-first so UI "recent" is consistent even if the client doesn't sort
@@ -374,6 +413,8 @@ export const handler: Handler = async (event) => {
           baseIdSuffix: String(baseId).slice(-6),
           tables: { prescreensTable, dropoffsTable, questionsTable, treatmentsTable },
           clinicId,
+          clinic_uuid,
+          airtable_clinic_record_id,
           airtableErrors: {
             PreScreens: preRes.error,
             PreScreen_DropOffs: dropRes.error,
@@ -406,6 +447,8 @@ export const handler: Handler = async (event) => {
         apiVersion: DASHBOARD_API_VERSION,
         is_super_admin: isSuperAdmin,
         clinicId,
+        clinic_uuid,
+        airtable_clinic_record_id,
         metrics: {
           totalPreScreens,
           passRate,
