@@ -139,6 +139,12 @@ export const handler: Handler = async (event) => {
     // Debug mode ONLY when explicitly requested: ?debug=1
     const debug = event.queryStringParameters?.debug === "1";
 
+    // Optional clinic override for super admins
+    const clinicIdOverride =
+      event.queryStringParameters?.clinic_id ||
+      event.queryStringParameters?.clinicId ||
+      null;
+
     // 1) Require Supabase token
     const token = getBearerToken(event);
     if (!token) {
@@ -158,13 +164,30 @@ export const handler: Handler = async (event) => {
       return { statusCode: 401, body: JSON.stringify({ error: "Invalid session token" }) };
     }
 
-    // 3) Validate query
-    const clinicId = event.queryStringParameters?.clinicId;
+    // 3) Load caller profile (role + clinic mapping)
+    const uid = userData.user.id;
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from("profiles")
+      .select("clinic_id, role")
+      .eq("id", uid)
+      .single();
+
+    if (profileErr || !profile) {
+      return { statusCode: 403, body: JSON.stringify({ error: "Missing profile mapping" }) };
+    }
+
+    const isSuperAdmin = String(profile.role || "").toLowerCase() === "super_admin";
+
+    // 4) Decide which clinic to load:
+    // - Normal clinic users: always their own clinic_id
+    // - Super admins: can optionally override via ?clinic_id=... (or legacy ?clinicId=...)
+    const clinicId = isSuperAdmin && clinicIdOverride ? clinicIdOverride : profile.clinic_id;
+
     if (!clinicId) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
     }
 
-    // 4) Airtable base + tables
+    // 5) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
     if (!baseId) {
       return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
@@ -175,7 +198,7 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // 5) Fetch everything for this clinic (filter in code)
+    // 6) Fetch everything for this clinic (filter in code)
     const preRes = await safeFetchTable(baseId, prescreensTable, clinicId);
     const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicId);
     const qRes = await safeFetchTable(baseId, questionsTable, clinicId);
@@ -213,7 +236,7 @@ export const handler: Handler = async (event) => {
     const questions = qRes.records;
     const treatments = tRes.records;
 
-    // 6) Metrics (computed)
+    // 7) Metrics (computed)
     // Completed prescreens for the dashboard are PASS + REVIEW + FAIL (exclude blanks/unknown)
     const preScreensCompleted = preScreens.filter((r: any) => {
       const e = effectiveEligibility(r);
@@ -346,6 +369,8 @@ export const handler: Handler = async (event) => {
     // Debug info only when ?debug=1
     const debugInfo = debug
       ? {
+          uid,
+          isSuperAdmin,
           baseIdSuffix: String(baseId).slice(-6),
           tables: { prescreensTable, dropoffsTable, questionsTable, treatmentsTable },
           clinicId,
@@ -379,6 +404,8 @@ export const handler: Handler = async (event) => {
         questions,
         treatments,
         apiVersion: DASHBOARD_API_VERSION,
+        is_super_admin: isSuperAdmin,
+        clinicId,
         metrics: {
           totalPreScreens,
           passRate,
