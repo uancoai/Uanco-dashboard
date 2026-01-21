@@ -46,8 +46,35 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
     const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
     const records = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
 
-    // ✅ Filter in code (linked record field is array of rec... ids)
-    const filtered = records.filter((r: any) => Array.isArray(r.Clinic) && r.Clinic.includes(clinicId));
+    // ✅ Filter in code.
+    // Airtable clinic references can be stored either as:
+    // - a linked-record array field (commonly named "Clinic") containing ["rec..."]
+    // - OR a text/calc field that contains the clinic record id
+    // Different bases sometimes rename the field, so we check a small set of candidates.
+    const clinicFieldCandidates = [
+      "Clinic",
+      "clinic",
+      "clinic_id",
+      "Clinic ID",
+      "Clinic Record ID",
+      "clinic_record_id",
+      "airtable_clinic_record_id",
+    ];
+
+    const recordMatchesClinic = (r: any) => {
+      for (const f of clinicFieldCandidates) {
+        const v = r?.[f];
+
+        // Linked-record field: ["rec..."]
+        if (Array.isArray(v) && v.includes(clinicId)) return true;
+
+        // Text / formula field that includes the rec id
+        if (typeof v === "string" && v.includes(clinicId)) return true;
+      }
+      return false;
+    };
+
+    const filtered = records.filter(recordMatchesClinic);
 
     return { records: filtered, error: null as string | null };
   } catch (e: any) {
