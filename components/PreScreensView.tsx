@@ -10,7 +10,7 @@ type Props = {
   onNavigate?: (view: string) => void;
 };
 
-type Tab = 'all' | 'safe' | 'review' | 'unsuitable';
+type Tab = 'all' | 'safe' | 'review' | 'unsuitable' | 'booked';
 
 function toLower(v: any) {
   return String(v ?? '').trim().toLowerCase();
@@ -221,7 +221,6 @@ function normalizeForPanel(r: any) {
 
 const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdateRecord }) => {
   const [tab, setTab] = useState<Tab>('all');
-  const [bookedOnly, setBookedOnly] = useState(false);
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<any | null>(null);
 
@@ -246,12 +245,18 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
       const tabParam = (url.searchParams.get('tab') || url.searchParams.get('eligibility') || '').toLowerCase();
       const bookedParam = (url.searchParams.get('booked') || '').toLowerCase();
 
-      if (tabParam === 'safe' || tabParam === 'review' || tabParam === 'unsuitable' || tabParam === 'all') {
+      if (
+        tabParam === 'safe' ||
+        tabParam === 'review' ||
+        tabParam === 'unsuitable' ||
+        tabParam === 'all' ||
+        tabParam === 'booked'
+      ) {
         setTab(tabParam as Tab);
       }
 
       if (bookedParam === '1' || bookedParam === 'true' || bookedParam === 'yes') {
-        setBookedOnly(true);
+        setTab('booked');
       }
     } catch {
       // ignore
@@ -261,12 +266,18 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     const storedTab = sessionStorage.getItem('prescreens_tab');
     const storedBooked = sessionStorage.getItem('prescreens_booked');
 
-    if (storedTab === 'safe' || storedTab === 'review' || storedTab === 'unsuitable' || storedTab === 'all') {
+    if (
+      storedTab === 'safe' ||
+      storedTab === 'review' ||
+      storedTab === 'unsuitable' ||
+      storedTab === 'all' ||
+      storedTab === 'booked'
+    ) {
       setTab(storedTab as Tab);
     }
 
     if (storedBooked === 'true') {
-      setBookedOnly(true);
+      setTab('booked');
     }
 
     sessionStorage.removeItem('prescreens_tab');
@@ -310,13 +321,11 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     let list =
       tab === 'all'
         ? mergedAll
+        : tab === 'booked'
+        ? mergedAll.filter((r) => isBookedUi(r))
         : tab === 'unsuitable'
         ? [...unsuitableLocal, ...unsuitableFromDropOffs]
         : prescreensValid.filter((r) => toLower(r?.eligibility) === tab);
-
-    if (bookedOnly) {
-      list = list.filter((r) => isBookedUi(r));
-    }
 
     if (needle) {
       list = list.filter((r) => {
@@ -335,7 +344,7 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
     });
 
     return list;
-  }, [normalized, unsuitableFromDropOffs, tab, q, bookedOnly]);
+  }, [normalized, unsuitableFromDropOffs, tab, q]);
 
   const toggleBooking = (r: any) => {
     if (!onUpdateRecord) return;
@@ -402,9 +411,9 @@ const PreScreensView: React.FC<Props> = ({ records = [], dropOffs = [], onUpdate
           </button>
 
           <button
-            onClick={() => setBookedOnly((v) => !v)}
+            onClick={() => setTab((t) => (t === 'booked' ? 'all' : 'booked'))}
             className={`px-4 py-2 rounded-2xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
-              bookedOnly
+              tab === 'booked'
                 ? 'bg-uanco-900 text-white border-uanco-900'
                 : 'bg-white border-uanco-100 text-uanco-500 hover:bg-uanco-50'
             }`}
