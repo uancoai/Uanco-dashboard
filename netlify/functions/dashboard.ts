@@ -520,6 +520,20 @@ export const handler: Handler = async (event) => {
           funnelData,
           treatmentStats,
         },
+        overview: {
+          totalPreScreens,
+          passRate,
+          unsuitableCount,
+          dropOffsCount: canonicalIncompletes.length,
+          reviewCount: review,
+        },
+        clinicSignals: {
+          totalPreScreens,
+          passRate,
+          unsuitableCount,
+          dropOffsCount: canonicalIncompletes.length,
+          reviewCount: review,
+        },
         // Backwards-compatible aliases (in case the frontend expects a different key)
         activity: mergedRecentActivity.slice(0, 20),
         recent: mergedRecentActivity.slice(0, 20),

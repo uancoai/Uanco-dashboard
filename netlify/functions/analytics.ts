@@ -32,6 +32,38 @@ function asArray(v: any): string[] {
   return [String(v)];
 }
 
+function norm(v: any): string {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function asStringArrayField(fields: any, fieldName: string): string[] {
+  return asArray(fields?.[fieldName]).map((x) => String(x));
+}
+
+// Helper: Normalize outcome values to pass/fail/review/""
+function normalizeOutcome(v: any): "pass" | "fail" | "review" | "" {
+  const s = String(v || "").trim().toLowerCase();
+  if (s === "pass") return "pass";
+  if (s === "fail") return "fail";
+  // Airtable option is typically "Manual Review"
+  if (s === "manual review" || s === "manual_review" || s === "review") return "review";
+  return "";
+}
+
+// Helper: Fetch all records from Airtable table (with pagination)
+async function airtableListAll(baseId: string, tableName: string, params: string): Promise<any[]> {
+  const out: any[] = [];
+  let offset: string | undefined;
+  do {
+    const url = `${AIRTABLE_API}/${baseId}/${encodeURIComponent(tableName)}?${params}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`;
+    const resp = await airtableGet(url);
+    const records = resp?.records || [];
+    out.push(...records);
+    offset = resp?.offset;
+  } while (offset);
+  return out;
+}
+
 export const handler: Handler = async (event) => {
   try {
     // 1) Require Supabase token
@@ -52,13 +84,17 @@ export const handler: Handler = async (event) => {
     }
 
     // 3) Inputs
-    const clinicId = event.queryStringParameters?.clinicId;
-    if (!clinicId) return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId" }) };
+    const clinicId = event.queryStringParameters?.clinicId; // Airtable Clinics record id (rec...)
+    const publicClinicKey = event.queryStringParameters?.publicClinicKey; // your plain-text clinic key
+    if (!clinicId && !publicClinicKey) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Missing clinicId or publicClinicKey" }) };
+    }
 
     const baseId = process.env.AIRTABLE_BASE_ID!;
     if (!baseId) return { statusCode: 500, body: JSON.stringify({ error: "Missing AIRTABLE_BASE_ID" }) };
 
     const prescreensTable = process.env.AIRTABLE_TABLE_PRESCREENS || "PreScreens";
+    const dropoffsTable = process.env.AIRTABLE_TABLE_DROPOFFS || "PreScreen_DropOffs";
 
     // IMPORTANT: This MUST be the linked record field (Link to another record → Clinics)
     const clinicLinkField = process.env.AIRTABLE_CLINIC_LINK_FIELD || "Clinic";
@@ -66,22 +102,55 @@ export const handler: Handler = async (event) => {
     // Eligibility field name in Airtable (keep your current)
     const eligibilityField = "eligibility";
 
+    // Public Clinic Key field name in Airtable
+    const publicClinicKeyField = process.env.AIRTABLE_PUBLIC_CLINIC_KEY_FIELD || "Public Clinic Key";
+
     // 4) Pull records WITHOUT formula, then filter in code (more reliable)
     // (We also request only the fields we need to reduce payload)
-    const url =
-      `${AIRTABLE_API}/${baseId}/${encodeURIComponent(prescreensTable)}` +
-      `?pageSize=100&fields[]=${encodeURIComponent(clinicLinkField)}&fields[]=${encodeURIComponent(eligibilityField)}`;
+    const params =
+      `pageSize=100` +
+      `&fields[]=${encodeURIComponent(clinicLinkField)}` +
+      `&fields[]=${encodeURIComponent(eligibilityField)}` +
+      `&fields[]=${encodeURIComponent(publicClinicKeyField)}`;
 
-    const pre = await airtableGet(url);
-    const rows = (pre.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    const records = await airtableListAll(baseId, prescreensTable, params);
+    const rows = records.map((r: any) => ({ id: r.id, ...r.fields }));
 
-    // Filter by linked clinic record id (rec...)
-    const preScreens = rows.filter((r: any) => asArray(r[clinicLinkField]).includes(clinicId));
+    const wantKey = publicClinicKey ? norm(publicClinicKey) : "";
+    const wantClinicId = clinicId ? String(clinicId) : "";
+
+    const preScreens = rows.filter((r: any) => {
+      if (wantKey) {
+        const keys = asArray(r[publicClinicKeyField]).map(norm);
+        return keys.includes(wantKey);
+      }
+      return asArray(r[clinicLinkField]).includes(wantClinicId);
+    });
+
+    // Drop-offs: pull the DropOffs table and count INCOMPLETE attempts for this clinic
+    const dropParams =
+      `pageSize=100` +
+      `&fields[]=${encodeURIComponent(clinicLinkField)}` +
+      `&fields[]=${encodeURIComponent(publicClinicKeyField)}` +
+      `&fields[]=${encodeURIComponent("outcome_type_calc")}`;
+
+    const dropRecords = await airtableListAll(baseId, dropoffsTable, dropParams);
+    const dropRows = dropRecords.map((r: any) => ({ id: r.id, ...r.fields }));
+
+    const dropoffsForClinic = dropRows.filter((r: any) => {
+      if (wantKey) {
+        const keys = asArray(r[publicClinicKeyField]).map(norm);
+        return keys.includes(wantKey);
+      }
+      return asArray(r[clinicLinkField]).includes(wantClinicId);
+    });
+
+    const dropoffs = dropoffsForClinic.filter((r: any) => norm(r["outcome_type_calc"]) === "incomplete").length;
 
     const total = preScreens.length;
-    const pass = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "pass").length;
-    const fail = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "fail").length;
-    const review = preScreens.filter((r: any) => String(r[eligibilityField] || "").toLowerCase() === "review").length;
+    const pass = preScreens.filter((r: any) => normalizeOutcome(r[eligibilityField]) === "pass").length;
+    const fail = preScreens.filter((r: any) => normalizeOutcome(r[eligibilityField]) === "fail").length;
+    const review = preScreens.filter((r: any) => normalizeOutcome(r[eligibilityField]) === "review").length;
 
     return {
       statusCode: 200,
@@ -92,7 +161,7 @@ export const handler: Handler = async (event) => {
           pass,
           fail,
           review,
-          dropoffs: 0,
+          dropoffs,
         },
         daily: [],
       }),
