@@ -39,12 +39,22 @@ async function airtableGet(path: string) {
  */
 async function safeFetchTable(baseId: string, tableName: string, clinicId: string | null) {
   try {
-    const q = new URLSearchParams({
-      pageSize: "100",
-    }).toString();
+    const pageSize = 100;
+    let offset: string | undefined = undefined;
+    const all: any[] = [];
 
-    const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${q}`);
-    const records = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+    // Airtable pagination: keep fetching while an `offset` is returned
+    do {
+      const params = new URLSearchParams({ pageSize: String(pageSize) });
+      if (offset) params.set("offset", offset);
+
+      const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`);
+      const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+      all.push(...batch);
+      offset = data.offset;
+    } while (offset);
+
+    const records = all;
 
     // ✅ Filter in code.
     // Airtable clinic references can be stored either as:
