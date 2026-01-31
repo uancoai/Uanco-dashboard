@@ -6,6 +6,25 @@ import { fetchDashboardData } from '../services/airtableService';
 // If you want mock locally, set VITE_USE_MOCK=true in your local .env only.
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
+// Cache clinic id so we don't keep calling /me when callers forget to pass clinicId
+let cachedClinicId: string | null = null;
+
+async function resolveClinicId(passedClinicId: string | undefined, token?: string): Promise<string> {
+  if (passedClinicId && passedClinicId.trim()) return passedClinicId;
+  if (cachedClinicId) return cachedClinicId;
+
+  // As a safe fallback, fetch the active clinic from /me
+  const t = await requireToken(token);
+  const res = await fetch('/.netlify/functions/me', { headers: authHeaders(t) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`GET /me failed while resolving clinicId (${res.status}): ${text}`);
+
+  const me = JSON.parse(text) as UserMeResponse;
+  cachedClinicId = me?.clinic?.id ?? null;
+  if (!cachedClinicId) throw new Error('Unable to resolve clinicId (missing clinic in /me response).');
+  return cachedClinicId;
+}
+
 function authHeaders(token?: string) {
   return token
     ? {
@@ -47,7 +66,10 @@ export const api = {
 
     const text = await res.text();
     if (!res.ok) throw new Error(`GET /me failed (${res.status}): ${text}`);
-    return JSON.parse(text);
+    const parsed = JSON.parse(text) as UserMeResponse;
+    // keep clinic id cached for other endpoints
+    cachedClinicId = parsed?.clinic?.id ?? cachedClinicId;
+    return parsed;
   },
 
   async getFullDashboardData(clinicId: string, token?: string): Promise<ClinicData> {
@@ -80,7 +102,8 @@ export const api = {
     }
 
     const t = await requireToken(token);
-    const query = new URLSearchParams(params as any).toString();
+    const clinicId = await resolveClinicId(params.clinicId, t);
+    const query = new URLSearchParams({ ...params, clinicId } as any).toString();
     const res = await fetch(`/.netlify/functions/prescreens?${query}`, { headers: authHeaders(t) });
 
     const text = await res.text();
@@ -110,7 +133,8 @@ export const api = {
     }
 
     const t = await requireToken(token);
-    const query = new URLSearchParams(params as any).toString();
+    const clinicId = await resolveClinicId(params.clinicId, t);
+    const query = new URLSearchParams({ ...params, clinicId } as any).toString();
     const res = await fetch(`/.netlify/functions/analytics?${query}`, { headers: authHeaders(t) });
 
     const text = await res.text();
