@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const AIRTABLE_API = "https://api.airtable.com/v0";
 // Bump this string whenever you deploy backend changes, so the frontend/Network tab can confirm updates.
-const DASHBOARD_API_VERSION = "dashboard_v1_2026-01-13_metrics-align_v2";
+const DASHBOARD_API_VERSION = "dashboard_v1_2026-01-31_exclude-dropoff-fails-from-totals_v1";
 
 /** ---------- Auth helpers ---------- */
 function getBearerToken(event: any) {
@@ -339,11 +339,16 @@ export const handler: Handler = async (event) => {
       else if (e === "fail") unsuitableFromPrescreens++;
     }
 
-    // Unsuitable = (FAIL rows in PreScreens) + (canonical FAIL rows in DropOffs)
-    const unsuitableCount = unsuitableFromPrescreens + canonicalFails.length;
+    // ✅ Unsuitable + totals should reflect PreScreens table only
+    // (DropOffs table FAIL rows are tracked separately but do NOT contribute to totals)
+    const unsuitableCount = unsuitableFromPrescreens;
 
-    // Total prescreens = Safe + Review + Unsuitable (excludes INCOMPLETE)
+    // Total prescreens = PASS + REVIEW + FAIL (PreScreens only)
     const totalPreScreens = pass + review + unsuitableCount;
+
+    // Optional visibility (kept separate from totals)
+    const hardFailsFromDropoffs = canonicalFails.length;
+    const hardFailsTotal = unsuitableFromPrescreens + canonicalFails.length;
 
     // Pass rate is "safe to book" as a share of completed prescreens
     const passRate = totalPreScreens ? Math.round((pass / totalPreScreens) * 100) : 0;
@@ -502,8 +507,11 @@ export const handler: Handler = async (event) => {
           // Card-ready counts
           unsuitableCount,
           dropOffsCount: canonicalIncompletes.length, // INCOMPLETE + canonical YES
-          // Hard fails come from canonical DropOff records (true FAIL outcomes)
+          // Hard fails (dashboard) = FAIL outcomes in PreScreens
           hardFails: unsuitableCount,
+          // Optional: visibility of FAIL outcomes still living in DropOffs (kept OUT of totals)
+          hardFailsFromDropoffs,
+          hardFailsTotal,
           // Temp fails are your REVIEW queue (manual_review_flag), which can later be cleared to PASS
           tempFails: review,
           // Helpful for debugging / rollout
