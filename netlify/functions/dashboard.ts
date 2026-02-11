@@ -241,34 +241,48 @@ export const handler: Handler = async (event) => {
       return { statusCode: 403, body: JSON.stringify({ error: "Missing clinic mapping (profiles.clinic_id)" }) };
     }
 
-    // Resolve caller clinic UUID -> Airtable rec...
-    const callerClinic = await resolveClinicByUuid(callerClinicUuid);
+    // Determine whether we're in all-clinics mode for super admins (when no override is provided)
+    const allClinicsMode = isSuperAdmin && !clinicIdOverride;
 
-    // Optional override for super admins:
-    // - If override starts with "rec" treat it as Airtable clinic record id
-    // - Otherwise treat it as Supabase clinic UUID and resolve it
-    let clinic_uuid = callerClinic.id;
-    let airtable_clinic_record_id = callerClinic.airtable_clinic_record_id;
+    // Resolve clinic scoping
+    // - For normal clinic users: always scope to their mapped clinic
+    // - For super admins:
+    //    - If no override: all clinics mode (no Airtable clinic filter)
+    //    - If override provided:
+    //        - If starts with "rec": treat as Airtable clinic record id
+    //        - Else: treat as Supabase clinic UUID and resolve it
 
-    if (isSuperAdmin && clinicIdOverride) {
-      const ov = String(clinicIdOverride).trim();
-      if (ov) {
-        if (ov.startsWith("rec")) {
-          airtable_clinic_record_id = ov;
-          // keep clinic_uuid as callerClinic.id (admin's own) if we can't resolve a UUID
-        } else {
-          const resolved = await resolveClinicByUuid(ov);
-          clinic_uuid = resolved.id;
-          airtable_clinic_record_id = resolved.airtable_clinic_record_id;
+    let clinic_uuid: string | null = null;
+    let airtable_clinic_record_id: string | null = null;
+
+    if (allClinicsMode) {
+      // Super admin default: see everything
+      clinic_uuid = null;
+      airtable_clinic_record_id = null;
+    } else {
+      // Start from the caller's clinic
+      const callerClinic = await resolveClinicByUuid(callerClinicUuid);
+      clinic_uuid = callerClinic.id;
+      airtable_clinic_record_id = callerClinic.airtable_clinic_record_id;
+
+      // Optional override for super admins
+      if (isSuperAdmin && clinicIdOverride) {
+        const ov = String(clinicIdOverride).trim();
+        if (ov) {
+          if (ov.startsWith("rec")) {
+            airtable_clinic_record_id = ov;
+            // Keep clinic_uuid as the caller clinic UUID when overriding by Airtable id only
+          } else {
+            const resolved = await resolveClinicByUuid(ov);
+            clinic_uuid = resolved.id;
+            airtable_clinic_record_id = resolved.airtable_clinic_record_id;
+          }
         }
       }
     }
 
     // For backwards-compat, keep a single clinicId field in responses (UUID when known)
     const clinicId = clinic_uuid;
-
-    // All clinics mode for super admins (when no override is provided)
-    const allClinicsMode = isSuperAdmin && !clinicIdOverride;
 
     // 5) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
