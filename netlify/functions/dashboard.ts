@@ -67,6 +67,7 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
       "clinic_id",
       "Clinic ID",
       "Clinic Record ID",
+      "Clinic Record ID (from Clinic)",
       "clinic_record_id",
       "airtable_clinic_record_id",
     ];
