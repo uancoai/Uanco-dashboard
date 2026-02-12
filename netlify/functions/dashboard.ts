@@ -241,16 +241,20 @@ export const handler: Handler = async (event) => {
       return { statusCode: 403, body: JSON.stringify({ error: "Missing clinic mapping (profiles.clinic_id)" }) };
     }
 
-    // Determine whether we're in all-clinics mode for super admins (when no override is provided)
-    const allClinicsMode = isSuperAdmin && !clinicIdOverride;
+    // Resolve the caller's clinic (needed for Airtable scoping + super-admin internal clinic detection)
+    const callerClinic = await resolveClinicByUuid(callerClinicUuid);
+
+    // Super admin behaviour:
+    // - If no override: all clinics
+    // - If the UI passes the admin's own internal clinic Airtable record id, treat it like "no override"
+    const ovTrim = clinicIdOverride ? String(clinicIdOverride).trim() : "";
+    const isAdminInternalClinic =
+      isSuperAdmin && !!ovTrim && ovTrim === callerClinic.airtable_clinic_record_id;
+
+    // Determine whether we're in all-clinics mode for super admins
+    const allClinicsMode = isSuperAdmin && (!clinicIdOverride || isAdminInternalClinic);
 
     // Resolve clinic scoping
-    // - For normal clinic users: always scope to their mapped clinic
-    // - For super admins:
-    //    - If no override: all clinics mode (no Airtable clinic filter)
-    //    - If override provided:
-    //        - If starts with "rec": treat as Airtable clinic record id
-    //        - Else: treat as Supabase clinic UUID and resolve it
 
     let clinic_uuid: string | null = null;
     let airtable_clinic_record_id: string | null = null;
@@ -261,7 +265,6 @@ export const handler: Handler = async (event) => {
       airtable_clinic_record_id = null;
     } else {
       // Start from the caller's clinic
-      const callerClinic = await resolveClinicByUuid(callerClinicUuid);
       clinic_uuid = callerClinic.id;
       airtable_clinic_record_id = callerClinic.airtable_clinic_record_id;
 
