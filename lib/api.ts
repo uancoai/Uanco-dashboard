@@ -7,9 +7,25 @@ import { fetchDashboardData } from '../services/airtableService';
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
 // Cache clinic id so we don't keep calling /me when callers forget to pass clinicId
+
 let cachedClinicId: string | null = null;
 
+function getClinicIdFromUrl(): string | null {
+  // Allow manual override via URL for admin testing/switching
+  // Supports common variants to avoid breaking existing links
+  if (typeof window === 'undefined') return null;
+  const sp = new URLSearchParams(window.location.search);
+  return (
+    sp.get('clinicid') ||
+    sp.get('clinicId') ||
+    sp.get('clinic_id') ||
+    sp.get('clinic')
+  );
+}
+
 async function resolveClinicId(passedClinicId: string | undefined, token?: string): Promise<string> {
+  const urlClinicId = getClinicIdFromUrl();
+  if (urlClinicId && urlClinicId.trim()) return urlClinicId;
   if (passedClinicId && passedClinicId.trim()) return passedClinicId;
   if (cachedClinicId) return cachedClinicId;
 
@@ -81,9 +97,17 @@ export const api = {
     }
 
     const t = await requireToken(token);
-    const res = await fetch(`/.netlify/functions/dashboard?clinicId=${encodeURIComponent(clinicId)}`, {
-      headers: authHeaders(t),
-    });
+    const urlClinicId = getClinicIdFromUrl();
+    const clinicIdToUse = (urlClinicId && urlClinicId.trim()) ? urlClinicId : clinicId;
+
+    const res = await fetch(
+      `/.netlify/functions/dashboard?clinicid=${encodeURIComponent(clinicIdToUse)}&clinicId=${encodeURIComponent(
+        clinicIdToUse
+      )}`,
+      {
+        headers: authHeaders(t),
+      }
+    );
 
     const text = await res.text();
     if (!res.ok) throw new Error(`GET /dashboard failed (${res.status}): ${text}`);
