@@ -9,6 +9,11 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 // Cache clinic id so we don't keep calling /me when callers forget to pass clinicId
 
 let cachedClinicId: string | null = null;
+export type ClinicSwitcherOption = {
+  name: string;
+  airtable_clinic_record_id: string;
+  public_clinic_key: string | null;
+};
 
 function getClinicIdFromUrl(): string | null {
   // Allow manual override via URL for admin testing/switching
@@ -111,6 +116,35 @@ export const api = {
 
     const text = await res.text();
     if (!res.ok) throw new Error(`GET /dashboard failed (${res.status}): ${text}`);
+    return JSON.parse(text);
+  },
+
+  async getClinics(token?: string): Promise<{ clinics: ClinicSwitcherOption[] }> {
+    if (USE_MOCK) {
+      return {
+        clinics: [
+          {
+            name: 'Lerae Medical Aesthetics',
+            airtable_clinic_record_id: 'rec_uanco_pilot_alpha_89s7d',
+            public_clinic_key: 'demo',
+          },
+        ],
+      };
+    }
+
+    const t = await requireToken(token);
+    const res = await fetch('/.netlify/functions/clinics', { headers: authHeaders(t) });
+    const text = await res.text();
+    if (!res.ok) {
+      let err = text;
+      try {
+        const parsed = JSON.parse(text);
+        err = parsed?.error || err;
+      } catch {
+        // keep raw text
+      }
+      throw new Error(`GET /clinics failed (${res.status}): ${err}`);
+    }
     return JSON.parse(text);
   },
 

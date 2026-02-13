@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
-import { api } from './lib/api';
+import { api, type ClinicSwitcherOption } from './lib/api';
 
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -26,6 +26,9 @@ const App = () => {
 
   const [dataError, setDataError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [adminClinics, setAdminClinics] = useState<ClinicSwitcherOption[]>([]);
+  const [adminClinicError, setAdminClinicError] = useState<string | null>(null);
+  const [adminClinicsLoading, setAdminClinicsLoading] = useState(false);
 
   const hasConfig = hasValidSupabaseConfig();
 
@@ -34,6 +37,14 @@ const App = () => {
 
   // ✅ Single source of truth for the clinic name
   const clinicName: string | null = profile?.clinic?.name ?? null;
+  const isSuperAdmin = profile?.is_super_admin === true;
+  const viewingClinicId = (() => {
+    if (typeof window === 'undefined') return profile?.clinic?.id ?? '';
+    const fromUrl = new URLSearchParams(window.location.search).get('clinicid');
+    return (fromUrl && fromUrl.trim()) || profile?.clinic?.id || '';
+  })();
+  const viewingClinicName =
+    adminClinics.find((c) => c.airtable_clinic_record_id === viewingClinicId)?.name || profile?.clinic?.name || 'Unknown clinic';
 
   const stripCodeFromUrl = () => {
     const u = new URL(window.location.href);
@@ -184,6 +195,14 @@ const App = () => {
     window.history.pushState({}, '', `/overview`);
   };
 
+  const handleSwitchClinic = (nextClinicId: string) => {
+    const next = String(nextClinicId || '').trim();
+    if (!next) return;
+    const u = new URL(window.location.href);
+    u.searchParams.set('clinicid', next);
+    window.location.assign(`${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+  };
+
   // ✅ Persist booking status (optimistic UI + save to Airtable)
   const handleUpdateRecord = async (id: string, updates: any) => {
     setDashboardData((prev: any) => {
@@ -198,6 +217,47 @@ const App = () => {
       console.error('[updatePreScreen] failed', e);
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAdminClinics = async () => {
+      if (!isSuperAdmin) {
+        setAdminClinics([]);
+        setAdminClinicError(null);
+        setAdminClinicsLoading(false);
+        return;
+      }
+
+      setAdminClinicsLoading(true);
+      setAdminClinicError(null);
+
+      try {
+        const token = session?.access_token;
+        if (!token) throw new Error('Missing auth token for clinic switcher');
+        const res = await api.getClinics(token);
+        if (!cancelled) setAdminClinics(Array.isArray(res?.clinics) ? res.clinics : []);
+      } catch (e: any) {
+        const msg = String(e?.message || e || 'Failed to load clinics');
+        if (!cancelled) {
+          setAdminClinics([]);
+          setAdminClinicError(
+            msg.includes('(403)')
+              ? 'Forbidden (403): super admin access is required to list clinics.'
+              : msg
+          );
+        }
+      } finally {
+        if (!cancelled) setAdminClinicsLoading(false);
+      }
+    };
+
+    loadAdminClinics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin, session?.access_token]);
 
   if (hasConfig && !authReady) {
     return (
@@ -410,6 +470,43 @@ const App = () => {
         </header>
 
         <div className="flex-1 p-4 md:p-8 lg:p-12 max-w-[1600px] mx-auto w-full overflow-x-hidden">
+          {isSuperAdmin && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-900">Admin view</p>
+              <div className="mt-1 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                <div className="text-xs text-amber-900">
+                  <p>
+                    <span className="font-semibold">Viewing:</span> {viewingClinicName}
+                  </p>
+                  <p>
+                    <span className="font-semibold">Clinic ID:</span> {viewingClinicId || 'N/A'}
+                  </p>
+                </div>
+                <div className="min-w-[260px]">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-900 mb-1">
+                    Switch clinic
+                  </label>
+                  <select
+                    value={viewingClinicId}
+                    onChange={(e) => handleSwitchClinic(e.target.value)}
+                    disabled={adminClinicsLoading || adminClinics.length === 0}
+                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs text-uanco-900 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-60"
+                  >
+                    {viewingClinicId &&
+                      !adminClinics.some((c) => c.airtable_clinic_record_id === viewingClinicId) && (
+                        <option value={viewingClinicId}>{`${viewingClinicName} (${viewingClinicId})`}</option>
+                      )}
+                    {adminClinics.map((clinic) => (
+                      <option key={clinic.airtable_clinic_record_id} value={clinic.airtable_clinic_record_id}>
+                        {clinic.name} ({clinic.airtable_clinic_record_id})
+                      </option>
+                    ))}
+                  </select>
+                  {adminClinicError && <p className="mt-1 text-[11px] text-rose-600">{adminClinicError}</p>}
+                </div>
+              </div>
+            </div>
+          )}
           <div className="animate-in fade-in duration-700">{renderView()}</div>
         </div>
 

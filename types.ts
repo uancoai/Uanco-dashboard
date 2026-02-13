@@ -23,6 +23,7 @@ export interface ClinicProfile {
 export interface UserMeResponse {
   user: AuthUser;
   clinic: ClinicProfile;
+  is_super_admin?: boolean;
 }
 
 export interface PreScreenRecord {

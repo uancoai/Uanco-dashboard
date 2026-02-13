@@ -182,6 +182,7 @@ export const handler: Handler = async (event) => {
 
     // Optional clinic override for super admins
     const clinicIdOverride =
+      event.queryStringParameters?.clinicid ||
       event.queryStringParameters?.clinic_id ||
       event.queryStringParameters?.clinicId ||
       null;

@@ -62,6 +62,19 @@ export const handler: Handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "User email missing" }) };
     }
 
+    // Best-effort role lookup for admin gating. Do not block normal users if this fails.
+    let isSuperAdmin = false;
+    try {
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("role")
+        .eq("id", userData.user.id)
+        .single();
+      isSuperAdmin = String(profile?.role || "").toLowerCase() === "super_admin";
+    } catch (roleErr) {
+      console.warn("[me] profile role lookup failed; defaulting is_super_admin=false", roleErr);
+    }
+
     const baseId = process.env.AIRTABLE_BASE_ID!;
     const clinicsTable = process.env.AIRTABLE_TABLE_CLINICS || "Clinics";
     if (!baseId) {
@@ -99,6 +112,7 @@ export const handler: Handler = async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         user: { id: userData.user.id, email },
+        is_super_admin: isSuperAdmin,
         clinic: {
           id: clinicRec.id, // IMPORTANT: we use the Airtable record id as clinic id
           name,
