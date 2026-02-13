@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase, hasValidSupabaseConfig } from './lib/supabase';
 import { api, type ClinicSwitcherOption } from './lib/api';
+import { useClinicContext } from './context/ClinicContext';
 
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -14,14 +15,27 @@ import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, ChevronLeft } from 'luci
 
 type SessionState = any | null; // null=logged out, object=logged in
 
+const KNOWN_VIEWS = ['overview', 'prescreens', 'ai-insight', 'compliance', 'feedback'];
+
+function viewFromPathname(pathname: string) {
+  const cleaned = String(pathname || '/')
+    .replace(/^\/+/, '')
+    .split('/')[0]
+    .trim();
+  return KNOWN_VIEWS.includes(cleaned) ? cleaned : 'overview';
+}
+
 const App = () => {
+  const { selectedClinicId, setSelectedClinicId } = useClinicContext();
   const [session, setSession] = useState<SessionState>(null);
   const [authReady, setAuthReady] = useState(false);
 
   const [profile, setProfile] = useState<any>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
 
-  const [currentView, setCurrentView] = useState('overview');
+  const [currentView, setCurrentView] = useState(() =>
+    typeof window !== 'undefined' ? viewFromPathname(window.location.pathname) : 'overview'
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [dataError, setDataError] = useState<string | null>(null);
@@ -36,16 +50,11 @@ const App = () => {
   const fetchingRef = useRef(false);
 
   // ✅ Single source of truth for the clinic name
-  const clinicName: string | null = profile?.clinic?.name ?? null;
   const isSuperAdmin = profile?.is_super_admin === true;
-  const viewingClinicId = (() => {
-    if (typeof window === 'undefined') return profile?.clinic?.id ?? '';
-    const sp = new URLSearchParams(window.location.search);
-    const fromUrl = sp.get('clinicId') || sp.get('clinicid');
-    return (fromUrl && fromUrl.trim()) || profile?.clinic?.id || '';
-  })();
+  const viewingClinicId = (selectedClinicId && selectedClinicId.trim()) || profile?.clinic?.id || '';
   const viewingClinicName =
     adminClinics.find((c) => c.airtable_clinic_record_id === viewingClinicId)?.name || profile?.clinic?.name || 'Unknown clinic';
+  const clinicName: string | null = viewingClinicName ?? null;
 
   const stripCodeFromUrl = () => {
     const u = new URL(window.location.href);
@@ -74,7 +83,7 @@ const App = () => {
     }
   };
 
-  const fetchProfileAndData = async (tokenOverride?: string, clinicIdOverride?: string) => {
+  const fetchProfileAndData = useCallback(async (tokenOverride?: string) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
@@ -87,14 +96,11 @@ const App = () => {
       const me = await api.getMe(token);
       setProfile(me);
 
-      const urlClinicId =
-        typeof window !== 'undefined'
-          ? (() => {
-              const sp = new URLSearchParams(window.location.search);
-              return sp.get('clinicId')?.trim() || sp.get('clinicid')?.trim() || null;
-            })()
-          : null;
-      const activeClinicId = clinicIdOverride?.trim() || urlClinicId || me.clinic.id;
+      const requestedClinicId = selectedClinicId?.trim() || me.clinic.id;
+      const activeClinicId = me?.is_super_admin ? requestedClinicId : me.clinic.id;
+      if (activeClinicId && activeClinicId !== selectedClinicId) {
+        setSelectedClinicId(activeClinicId);
+      }
       api.setActiveClinicId(activeClinicId || null);
 
       const full = await api.getFullDashboardData(activeClinicId, token);
@@ -114,7 +120,7 @@ const App = () => {
     } finally {
       fetchingRef.current = false;
     }
-  };
+  }, [selectedClinicId, setSelectedClinicId, session?.access_token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,9 +147,6 @@ const App = () => {
           setAuthReady(true);
         }
 
-        if (s) {
-          await fetchProfileAndData(s.access_token);
-        }
       } catch (e) {
         console.error('[bootstrap] failed', e);
         if (!cancelled) {
@@ -163,9 +166,7 @@ const App = () => {
       setSession(newSession ?? null);
       setAuthReady(true);
 
-      if (newSession) {
-        await fetchProfileAndData(newSession.access_token);
-      } else {
+      if (!newSession) {
         api.setActiveClinicId(null);
         setProfile(null);
         setDashboardData(null);
@@ -177,8 +178,21 @@ const App = () => {
       cancelled = true;
       subscription.unsubscribe();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasConfig]);
+
+  useEffect(() => {
+    const syncViewFromLocation = () => {
+      setCurrentView(viewFromPathname(window.location.pathname));
+    };
+
+    window.addEventListener('popstate', syncViewFromLocation);
+    return () => window.removeEventListener('popstate', syncViewFromLocation);
+  }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    fetchProfileAndData(session.access_token);
+  }, [fetchProfileAndData, session?.access_token, selectedClinicId]);
 
   const handleLogout = async () => {
     api.setActiveClinicId(null);
@@ -189,43 +203,44 @@ const App = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await fetchProfileAndData(session?.access_token, isSuperAdmin ? viewingClinicId : undefined);
+      await fetchProfileAndData(session?.access_token);
     } finally {
       setIsRefreshing(false);
     }
   };
 
+  const buildViewUrl = (view: string) => {
+    const u = new URL(window.location.href);
+    const safeView = viewFromPathname(`/${view}`);
+    u.pathname = `/${safeView}`;
+    u.searchParams.delete('clinicid');
+    if (selectedClinicId) {
+      u.searchParams.set('clinicId', selectedClinicId);
+    } else {
+      u.searchParams.delete('clinicId');
+    }
+    return `${u.pathname}${u.search}${u.hash}`;
+  };
+
   const handleNavigate = (view: string) => {
-    setCurrentView(view);
+    const nextView = viewFromPathname(`/${view}`);
+    setCurrentView(nextView);
     setSidebarOpen(false);
-    window.history.pushState({}, '', `/${view}`);
+    window.history.pushState({}, '', buildViewUrl(nextView));
   };
 
   const handleBack = () => {
     // Simple UX: always take the user back to Overview
     setCurrentView('overview');
     setSidebarOpen(false);
-    window.history.pushState({}, '', `/overview`);
+    window.history.pushState({}, '', buildViewUrl('overview'));
   };
 
-  const handleSwitchClinic = async (nextClinicId: string) => {
+  const handleSwitchClinic = (nextClinicId: string) => {
     const next = String(nextClinicId || '').trim();
     if (!next) return;
-
-    const u = new URL(window.location.href);
-    u.searchParams.delete('clinicid');
-    u.searchParams.set('clinicId', next);
-    window.history.replaceState({}, document.title, `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
-
+    setSelectedClinicId(next);
     api.setActiveClinicId(next);
-
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    try {
-      await fetchProfileAndData(session?.access_token, next);
-    } finally {
-      setIsRefreshing(false);
-    }
   };
 
   // ✅ Persist booking status (optimistic UI + save to Airtable)
@@ -379,8 +394,8 @@ const App = () => {
       case 'overview':
         return (
           <Dashboard
-            clinicId={profile?.clinic?.id}
-            clinicName={profile?.clinic?.name}
+            clinicId={viewingClinicId}
+            clinicName={viewingClinicName}
             onNavigate={handleNavigate}
             preScreens={dashboardData?.preScreens || []}
             metrics={dashboardData?.metrics || null}
@@ -424,8 +439,8 @@ const App = () => {
       default:
         return (
           <Dashboard
-            clinicId={profile?.clinic?.id}
-            clinicName={profile?.clinic?.name}
+            clinicId={viewingClinicId}
+            clinicName={viewingClinicName}
             onNavigate={handleNavigate}
             preScreens={dashboardData?.preScreens || []}
             metrics={dashboardData?.metrics || null}

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from "./App";
+import { ClinicProvider } from './context/ClinicContext';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -8,4 +9,8 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
-root.render(<App />);
+root.render(
+  <ClinicProvider>
+    <App />
+  </ClinicProvider>
+);
