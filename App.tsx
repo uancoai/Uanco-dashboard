@@ -73,7 +73,7 @@ const App = () => {
     }
   };
 
-  const fetchProfileAndData = async (tokenOverride?: string) => {
+  const fetchProfileAndData = async (tokenOverride?: string, clinicIdOverride?: string) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
@@ -86,7 +86,14 @@ const App = () => {
       const me = await api.getMe(token);
       setProfile(me);
 
-      const full = await api.getFullDashboardData(me.clinic.id, token);
+      const urlClinicId =
+        typeof window !== 'undefined'
+          ? new URLSearchParams(window.location.search).get('clinicid')?.trim() || null
+          : null;
+      const activeClinicId = clinicIdOverride?.trim() || urlClinicId || me.clinic.id;
+      api.setActiveClinicId(activeClinicId || null);
+
+      const full = await api.getFullDashboardData(activeClinicId, token);
 
       // ✅ Merge safety: don't wipe existing data if "full" is nullish
       setDashboardData((prev: any) => full ?? prev);
@@ -155,6 +162,7 @@ const App = () => {
       if (newSession) {
         await fetchProfileAndData(newSession.access_token);
       } else {
+        api.setActiveClinicId(null);
         setProfile(null);
         setDashboardData(null);
         setDataError(null);
@@ -169,6 +177,7 @@ const App = () => {
   }, [hasConfig]);
 
   const handleLogout = async () => {
+    api.setActiveClinicId(null);
     await supabase.auth.signOut();
   };
 
@@ -176,7 +185,7 @@ const App = () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await fetchProfileAndData(session?.access_token);
+      await fetchProfileAndData(session?.access_token, isSuperAdmin ? viewingClinicId : undefined);
     } finally {
       setIsRefreshing(false);
     }
@@ -195,12 +204,23 @@ const App = () => {
     window.history.pushState({}, '', `/overview`);
   };
 
-  const handleSwitchClinic = (nextClinicId: string) => {
+  const handleSwitchClinic = async (nextClinicId: string) => {
     const next = String(nextClinicId || '').trim();
     if (!next) return;
+
     const u = new URL(window.location.href);
     u.searchParams.set('clinicid', next);
-    window.location.assign(`${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+    window.history.replaceState({}, document.title, `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
+
+    api.setActiveClinicId(next);
+
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchProfileAndData(session?.access_token, next);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // ✅ Persist booking status (optimistic UI + save to Airtable)
@@ -475,6 +495,9 @@ const App = () => {
               <p className="text-[10px] font-bold uppercase tracking-widest text-amber-900">Admin view</p>
               <div className="mt-1 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                 <div className="text-xs text-amber-900">
+                  <p>
+                    <span className="font-semibold">Clinic:</span> {viewingClinicName}
+                  </p>
                   <p>
                     <span className="font-semibold">Viewing:</span> {viewingClinicName}
                   </p>

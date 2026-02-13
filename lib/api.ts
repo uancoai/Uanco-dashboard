@@ -29,9 +29,10 @@ function getClinicIdFromUrl(): string | null {
 }
 
 async function resolveClinicId(passedClinicId: string | undefined, token?: string): Promise<string> {
+  if (passedClinicId && passedClinicId.trim()) return passedClinicId;
+
   const urlClinicId = getClinicIdFromUrl();
   if (urlClinicId && urlClinicId.trim()) return urlClinicId;
-  if (passedClinicId && passedClinicId.trim()) return passedClinicId;
   if (cachedClinicId) return cachedClinicId;
 
   // As a safe fallback, fetch the active clinic from /me
@@ -69,6 +70,11 @@ async function requireToken(explicitToken?: string) {
 }
 
 export const api = {
+  setActiveClinicId(clinicId: string | null) {
+    const trimmed = clinicId?.trim();
+    cachedClinicId = trimmed ? trimmed : null;
+  },
+
   async getMe(token?: string): Promise<UserMeResponse> {
     if (USE_MOCK) {
       return {
@@ -102,13 +108,10 @@ export const api = {
     }
 
     const t = await requireToken(token);
-    const urlClinicId = getClinicIdFromUrl();
-    const clinicIdToUse = (urlClinicId && urlClinicId.trim()) ? urlClinicId : clinicId;
+    const clinicIdToUse = await resolveClinicId(clinicId, t);
 
     const res = await fetch(
-      `/.netlify/functions/dashboard?clinicid=${encodeURIComponent(clinicIdToUse)}&clinicId=${encodeURIComponent(
-        clinicIdToUse
-      )}`,
+      `/.netlify/functions/dashboard?clinicId=${encodeURIComponent(clinicIdToUse)}`,
       {
         headers: authHeaders(t),
       }
