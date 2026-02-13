@@ -31,22 +31,33 @@ async function airtableGet(path: string) {
   return JSON.parse(text);
 }
 
+function escFormulaValue(v: string) {
+  return String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 /**
  * Safe fetch table:
- * - Fetches WITHOUT filterByFormula (avoids Airtable silent filter failure)
- * - Filters in code by linked record field "Clinic" containing clinicId
+ * - Optionally applies Airtable linked-record formula filter by `{Clinic}`
  * - Returns error string (not thrown) when Airtable fails
  */
-async function safeFetchTable(baseId: string, tableName: string, clinicId: string | null) {
+async function safeFetchTable(
+  baseId: string,
+  tableName: string,
+  clinicId: string | null,
+  useLinkedClinicFormula = false
+) {
   try {
     const pageSize = 100;
     let offset: string | undefined = undefined;
     const all: any[] = [];
+    const filterFormula =
+      useLinkedClinicFormula && clinicId ? `FIND("${escFormulaValue(clinicId)}", ARRAYJOIN({Clinic}))` : null;
 
     // Airtable pagination: keep fetching while an `offset` is returned
     do {
       const params = new URLSearchParams({ pageSize: String(pageSize) });
       if (offset) params.set("offset", offset);
+      if (filterFormula) params.set("filterByFormula", filterFormula);
 
       const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`);
       const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
@@ -54,45 +65,33 @@ async function safeFetchTable(baseId: string, tableName: string, clinicId: strin
       offset = data.offset;
     } while (offset);
 
-    const records = all;
+    // For tables not using Airtable formula filtering, keep existing broad in-code compatibility.
+    if (!useLinkedClinicFormula && clinicId) {
+      const clinicFieldCandidates = [
+        "Clinic",
+        "clinic",
+        "clinic_id",
+        "Clinic ID",
+        "Clinic Record ID",
+        "Clinic Record ID (from Clinic)",
+        "clinic_record_id",
+        "airtable_clinic_record_id",
+      ];
 
-    // ✅ Filter in code.
-    // Airtable clinic references can be stored either as:
-    // - a linked-record array field (commonly named "Clinic") containing ["rec..."]
-    // - OR a text/calc field that contains the clinic record id
-    // Different bases sometimes rename the field, so we check a small set of candidates.
-    const clinicFieldCandidates = [
-      "Clinic",
-      "clinic",
-      "clinic_id",
-      "Clinic ID",
-      "Clinic Record ID",
-      "Clinic Record ID (from Clinic)",
-      "clinic_record_id",
-      "airtable_clinic_record_id",
-    ];
+      const filtered = all.filter((r: any) => {
+        for (const f of clinicFieldCandidates) {
+          const v = r?.[f];
+          if (Array.isArray(v) && v.includes(clinicId)) return true;
+          if (typeof v === "string" && v.includes(clinicId)) return true;
+        }
+        return false;
+      });
+      return { records: filtered, error: null as string | null, filterFormula };
+    }
 
-    const recordMatchesClinic = (r: any) => {
-      // Super-admin "all clinics" mode: if clinicId is not provided, do not filter.
-      if (!clinicId) return true;
-
-      for (const f of clinicFieldCandidates) {
-        const v = r?.[f];
-
-        // Linked-record field: ["rec..."]
-        if (Array.isArray(v) && v.includes(clinicId)) return true;
-
-        // Text / formula field that includes the rec id
-        if (typeof v === "string" && v.includes(clinicId)) return true;
-      }
-      return false;
-    };
-
-    const filtered = records.filter(recordMatchesClinic);
-
-    return { records: filtered, error: null as string | null };
+    return { records: all, error: null as string | null, filterFormula };
   } catch (e: any) {
-    return { records: [], error: e?.message || String(e) };
+    return { records: [], error: e?.message || String(e), filterFormula: null as string | null };
   }
 }
 
@@ -182,9 +181,9 @@ export const handler: Handler = async (event) => {
 
     // Optional clinic override for super admins
     const clinicIdOverride =
+      event.queryStringParameters?.clinicId ||
       event.queryStringParameters?.clinicid ||
       event.queryStringParameters?.clinic_id ||
-      event.queryStringParameters?.clinicId ||
       null;
 
     // 1) Require Supabase token
@@ -245,48 +244,41 @@ export const handler: Handler = async (event) => {
     // Resolve the caller's clinic (needed for Airtable scoping + super-admin internal clinic detection)
     const callerClinic = await resolveClinicByUuid(callerClinicUuid);
 
-    // Super admin behaviour:
-    // - If no override: all clinics
-    // - If the UI passes the admin's own internal clinic Airtable record id, treat it like "no override"
-    const ovTrim = clinicIdOverride ? String(clinicIdOverride).trim() : "";
-    const isAdminInternalClinic =
-      isSuperAdmin && !!ovTrim && ovTrim === callerClinic.airtable_clinic_record_id;
+    // Clinic scoping:
+    // - Omitted clinicId => caller clinic (for both normal users and super admins)
+    // - Provided clinicId => allowed only for super admins, and must be Airtable rec id
+    const requestedClinicId = clinicIdOverride ? String(clinicIdOverride).trim() : "";
+    const allClinicsMode = false;
 
-    // Determine whether we're in all-clinics mode for super admins
-    const allClinicsMode = isSuperAdmin && (!clinicIdOverride || isAdminInternalClinic);
+    let clinic_uuid: string | null = callerClinic.id;
+    let airtable_clinic_record_id: string | null = callerClinic.airtable_clinic_record_id;
 
-    // Resolve clinic scoping
+    if (requestedClinicId) {
+      if (!requestedClinicId.startsWith("rec")) {
+        return { statusCode: 400, body: JSON.stringify({ error: "clinicId must be an Airtable record id (rec...)." }) };
+      }
 
-    let clinic_uuid: string | null = null;
-    let airtable_clinic_record_id: string | null = null;
+      if (!isSuperAdmin && requestedClinicId !== callerClinic.airtable_clinic_record_id) {
+        return { statusCode: 403, body: JSON.stringify({ error: "Forbidden: cannot switch clinic" }) };
+      }
 
-    if (allClinicsMode) {
-      // Super admin default: see everything
-      clinic_uuid = null;
-      airtable_clinic_record_id = null;
-    } else {
-      // Start from the caller's clinic
-      clinic_uuid = callerClinic.id;
-      airtable_clinic_record_id = callerClinic.airtable_clinic_record_id;
-
-      // Optional override for super admins
-      if (isSuperAdmin && clinicIdOverride) {
-        const ov = String(clinicIdOverride).trim();
-        if (ov) {
-          if (ov.startsWith("rec")) {
-            airtable_clinic_record_id = ov;
-            // Keep clinic_uuid as the caller clinic UUID when overriding by Airtable id only
-          } else {
-            const resolved = await resolveClinicByUuid(ov);
-            clinic_uuid = resolved.id;
-            airtable_clinic_record_id = resolved.airtable_clinic_record_id;
-          }
-        }
+      if (isSuperAdmin) {
+        airtable_clinic_record_id = requestedClinicId;
+        const { data: targetClinic } = await supabaseAdmin
+          .from("clinics")
+          .select("id")
+          .eq("airtable_clinic_record_id", requestedClinicId)
+          .maybeSingle();
+        clinic_uuid = targetClinic?.id || clinic_uuid;
       }
     }
 
-    // For backwards-compat, keep a single clinicId field in responses (UUID when known)
-    const clinicId = clinic_uuid;
+    if (!airtable_clinic_record_id) {
+      return { statusCode: 403, body: JSON.stringify({ error: "Missing Airtable clinic mapping" }) };
+    }
+
+    // Backwards-compatible response key. Now consistently Airtable clinic record id.
+    const clinicId = airtable_clinic_record_id;
 
     // 5) Airtable base + tables
     const baseId = process.env.AIRTABLE_BASE_ID!;
@@ -299,11 +291,12 @@ export const handler: Handler = async (event) => {
     const questionsTable = process.env.AIRTABLE_TABLE_QUESTIONS || "AI_Questions";
     const treatmentsTable = process.env.AIRTABLE_TABLE_TREATMENTS || "Treatments";
 
-    // 6) Fetch everything for this clinic (filter in code)
-    const clinicFilterId = allClinicsMode ? null : airtable_clinic_record_id;
+    // 6) Fetch everything for this clinic.
+    // Source of truth for clinic isolation is linked-record field `{Clinic}`.
+    const clinicFilterId = airtable_clinic_record_id;
 
-    const preRes = await safeFetchTable(baseId, prescreensTable, clinicFilterId);
-    const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicFilterId);
+    const preRes = await safeFetchTable(baseId, prescreensTable, clinicFilterId, true);
+    const dropRes = await safeFetchTable(baseId, dropoffsTable, clinicFilterId, true);
     const qRes = await safeFetchTable(baseId, questionsTable, clinicFilterId);
     const tRes = await safeFetchTable(baseId, treatmentsTable, clinicFilterId);
 
@@ -481,9 +474,14 @@ export const handler: Handler = async (event) => {
           isSuperAdmin,
           baseIdSuffix: String(baseId).slice(-6),
           tables: { prescreensTable, dropoffsTable, questionsTable, treatmentsTable },
+          requestedClinicId: requestedClinicId || null,
           clinicId,
           clinic_uuid,
           airtable_clinic_record_id,
+          filterFormula: {
+            PreScreens: preRes.filterFormula,
+            PreScreen_DropOffs: dropRes.filterFormula,
+          },
           airtableErrors: {
             PreScreens: preRes.error,
             PreScreen_DropOffs: dropRes.error,

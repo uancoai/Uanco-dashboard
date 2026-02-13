@@ -16,13 +16,12 @@ export type ClinicSwitcherOption = {
 };
 
 function getClinicIdFromUrl(): string | null {
-  // Allow manual override via URL for admin testing/switching
-  // Supports common variants to avoid breaking existing links
+  // Support legacy `clinicid`, but standardize on `clinicId`.
   if (typeof window === 'undefined') return null;
   const sp = new URLSearchParams(window.location.search);
   return (
-    sp.get('clinicid') ||
     sp.get('clinicId') ||
+    sp.get('clinicid') ||
     sp.get('clinic_id') ||
     sp.get('clinic')
   );

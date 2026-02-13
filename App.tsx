@@ -40,7 +40,8 @@ const App = () => {
   const isSuperAdmin = profile?.is_super_admin === true;
   const viewingClinicId = (() => {
     if (typeof window === 'undefined') return profile?.clinic?.id ?? '';
-    const fromUrl = new URLSearchParams(window.location.search).get('clinicid');
+    const sp = new URLSearchParams(window.location.search);
+    const fromUrl = sp.get('clinicId') || sp.get('clinicid');
     return (fromUrl && fromUrl.trim()) || profile?.clinic?.id || '';
   })();
   const viewingClinicName =
@@ -88,7 +89,10 @@ const App = () => {
 
       const urlClinicId =
         typeof window !== 'undefined'
-          ? new URLSearchParams(window.location.search).get('clinicid')?.trim() || null
+          ? (() => {
+              const sp = new URLSearchParams(window.location.search);
+              return sp.get('clinicId')?.trim() || sp.get('clinicid')?.trim() || null;
+            })()
           : null;
       const activeClinicId = clinicIdOverride?.trim() || urlClinicId || me.clinic.id;
       api.setActiveClinicId(activeClinicId || null);
@@ -209,7 +213,8 @@ const App = () => {
     if (!next) return;
 
     const u = new URL(window.location.href);
-    u.searchParams.set('clinicid', next);
+    u.searchParams.delete('clinicid');
+    u.searchParams.set('clinicId', next);
     window.history.replaceState({}, document.title, `${u.pathname}?${u.searchParams.toString()}${u.hash}`);
 
     api.setActiveClinicId(next);
