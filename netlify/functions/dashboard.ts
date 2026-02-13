@@ -37,7 +37,7 @@ function escFormulaValue(v: string) {
 
 /**
  * Safe fetch table:
- * - Optionally applies Airtable linked-record formula filter by `{Clinic}`
+ * - Optionally applies Airtable linked-record formula filter by clinic record-id lookup field
  * - Returns error string (not thrown) when Airtable fails
  */
 async function safeFetchTable(
@@ -48,22 +48,63 @@ async function safeFetchTable(
 ) {
   try {
     const pageSize = 100;
-    let offset: string | undefined = undefined;
-    const all: any[] = [];
-    const filterFormula =
-      useLinkedClinicFormula && clinicId ? `FIND("${escFormulaValue(clinicId)}", ARRAYJOIN({Clinic}))` : null;
+    const linkedClinicFormulaFields = [
+      "Clinic Record ID (from Clinic)",
+      "clinic record id (from clinic)",
+      "clinic_record_id_from_clinic",
+      "airtable_clinic_record_id",
+    ];
 
-    // Airtable pagination: keep fetching while an `offset` is returned
-    do {
-      const params = new URLSearchParams({ pageSize: String(pageSize) });
-      if (offset) params.set("offset", offset);
-      if (filterFormula) params.set("filterByFormula", filterFormula);
+    const buildFormula = (fieldName: string) =>
+      `FIND("${escFormulaValue(clinicId || "")}", ARRAYJOIN({${fieldName}}))`;
 
-      const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`);
-      const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
-      all.push(...batch);
-      offset = data.offset;
-    } while (offset);
+    const fetchAllPages = async (formula: string | null) => {
+      let offset: string | undefined = undefined;
+      const rows: any[] = [];
+
+      // Airtable pagination: keep fetching while an `offset` is returned
+      do {
+        const params = new URLSearchParams({ pageSize: String(pageSize) });
+        if (offset) params.set("offset", offset);
+        if (formula) params.set("filterByFormula", formula);
+
+        const data = await airtableGet(`/${baseId}/${encodeURIComponent(tableName)}?${params.toString()}`);
+        const batch = (data.records || []).map((r: any) => ({ id: r.id, ...r.fields }));
+        rows.push(...batch);
+        offset = data.offset;
+      } while (offset);
+
+      return rows;
+    };
+
+    let all: any[] = [];
+    let filterFormula: string | null = null;
+
+    if (useLinkedClinicFormula && clinicId) {
+      let lastErr: any = null;
+
+      for (const fieldName of linkedClinicFormulaFields) {
+        const candidateFormula = buildFormula(fieldName);
+        try {
+          all = await fetchAllPages(candidateFormula);
+          filterFormula = candidateFormula;
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+          const msg = String(e?.message || "");
+          const unknownField =
+            msg.includes("UNKNOWN_FIELD_NAME") ||
+            msg.includes("Unknown field name") ||
+            msg.includes("Unknown field names");
+          if (!unknownField) throw e;
+        }
+      }
+
+      if (lastErr && !filterFormula) throw lastErr;
+    } else {
+      all = await fetchAllPages(null);
+    }
 
     // For tables not using Airtable formula filtering, keep existing broad in-code compatibility.
     if (!useLinkedClinicFormula && clinicId) {
