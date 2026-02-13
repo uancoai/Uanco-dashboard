@@ -10,8 +10,9 @@ import ComplianceView from './components/ComplianceView';
 import FeedbackView from './components/FeedbackView';
 import TreatmentsView from './components/TreatmentsView';
 import Auth from './components/Auth';
+import ClinicSwitcherModal from './components/ClinicSwitcherModal';
 
-import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, ChevronLeft } from 'lucide-react';
+import { LogOut, Loader2, AlertCircle, Menu, RefreshCw, ChevronLeft, Building2 } from 'lucide-react';
 
 type SessionState = any | null; // null=logged out, object=logged in
 
@@ -43,6 +44,7 @@ const App = () => {
   const [adminClinics, setAdminClinics] = useState<ClinicSwitcherOption[]>([]);
   const [adminClinicError, setAdminClinicError] = useState<string | null>(null);
   const [adminClinicsLoading, setAdminClinicsLoading] = useState(false);
+  const [clinicModalOpen, setClinicModalOpen] = useState(false);
 
   const hasConfig = hasValidSupabaseConfig();
 
@@ -526,29 +528,31 @@ const App = () => {
                   </p>
                 </div>
                 <div className="min-w-[260px]">
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-amber-900 mb-1">
-                    Switch clinic
-                  </label>
-                  <select
-                    value={viewingClinicId}
-                    onChange={(e) => handleSwitchClinic(e.target.value)}
-                    disabled={adminClinicsLoading || adminClinics.length === 0}
-                    className="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs text-uanco-900 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-60"
+                  <button
+                    type="button"
+                    onClick={() => setClinicModalOpen(true)}
+                    disabled={adminClinicsLoading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-amber-900 hover:bg-amber-100 disabled:opacity-60"
                   >
-                    {viewingClinicId &&
-                      !adminClinics.some((c) => c.airtable_clinic_record_id === viewingClinicId) && (
-                        <option value={viewingClinicId}>{`${viewingClinicName} (${viewingClinicId})`}</option>
-                      )}
-                    {adminClinics.map((clinic) => (
-                      <option key={clinic.airtable_clinic_record_id} value={clinic.airtable_clinic_record_id}>
-                        {clinic.name} ({clinic.airtable_clinic_record_id})
-                      </option>
-                    ))}
-                  </select>
+                    <Building2 size={14} />
+                    Switch clinic
+                  </button>
                   {adminClinicError && <p className="mt-1 text-[11px] text-rose-600">{adminClinicError}</p>}
                 </div>
               </div>
             </div>
+          )}
+          {isSuperAdmin && (
+            <ClinicSwitcherModal
+              isOpen={clinicModalOpen}
+              clinics={adminClinics}
+              currentClinicId={viewingClinicId}
+              currentClinicName={viewingClinicName}
+              loading={adminClinicsLoading}
+              error={adminClinicError}
+              onClose={() => setClinicModalOpen(false)}
+              onSelect={handleSwitchClinic}
+            />
           )}
           <div className="animate-in fade-in duration-700">{renderView()}</div>
         </div>
